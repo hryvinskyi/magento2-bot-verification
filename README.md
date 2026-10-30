@@ -20,6 +20,9 @@ works on shops without Cloudflare rules or access to the web server's configurat
 The provider packages hold configuration only. With none installed, the core recognises no crawler and refuses
 nothing.
 
+The metapackage [`hryvinskyi/magento2-bot-verification-pack`](https://github.com/hryvinskyi/magento2-bot-verification-pack)
+requires the core, Google and Bing packages, and leaves Cloudflare out.
+
 ## How a request is judged
 
 1. One regular-expression pass over the User-Agent finds every crawler it names. A browser names none, and its request
