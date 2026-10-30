@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Copyright (c) 2026. Volodymyr Hryvinskyi. All rights reserved.
+ * Author: Volodymyr Hryvinskyi <volodymyr@hryvinskyi.com>
+ * GitHub: https://github.com/hryvinskyi
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/system_file.xsd">
+    <system>
+        <section id="hryvinskyi_bot_verification" translate="label" sortOrder="110" showInDefault="1"
+                 showInWebsite="1" showInStore="1">
+            <tab>hryvinskyi</tab>
+            <label>Bot Verification</label>
+            <resource>Hryvinskyi_BotVerification::config</resource>
+            <!-- The proxies in front of the shop serve the whole installation, so they are configured once. -->
+            <group id="client_address" translate="label" sortOrder="10" showInDefault="1" showInWebsite="0"
+                   showInStore="0">
+                <label>Client address</label>
+                <field id="trusted_proxies" translate="label comment" type="textarea" sortOrder="10"
+                       showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Trusted proxies</label>
+                    <backend_model>Hryvinskyi\BotVerification\Model\Config\Backend\TrustedProxies</backend_model>
+                    <comment>One CIDR range per line; a single address is written with /32 (IPv4) or /128 (IPv6). List the shop's own proxies and load balancers: every server in front of the shop that forwards visitors' requests and adds the address it received them from to X-Forwarded-For. The shop reads X-Forwarded-For from the right past these ranges, then past at most one CDN edge server that an installed provider module declares; the next address is the visitor's. Loopback and private ranges are here by default. List a CDN here only when no installed module declares it: addresses in these ranges are passed wherever they appear in the chain, and a CDN's ranges also hold its other customers' servers.</comment>
+                </field>
+                <field id="address_check" translate="label comment" sortOrder="20" showInDefault="1"
+                       showInWebsite="0" showInStore="0">
+                    <label>This request as the shop sees it</label>
+                    <frontend_model>Hryvinskyi\BotVerification\Block\Adminhtml\System\Config\AddressCheck</frontend_model>
+                    <comment>Compare the visitor address with your own public address before turning refusal on. If they differ, a proxy in front of the shop is missing from the trusted proxies. This row shows the path of this admin page only: open it through a host whose requests pass the same CDN and proxies as the storefront's. An admin host that bypasses them says nothing about storefront requests.</comment>
+                </field>
+            </group>
+            <group id="impostor" translate="label" sortOrder="20" showInDefault="1" showInWebsite="1"
+                   showInStore="1">
+                <label>Crawler impostors</label>
+                <field id="refuse" translate="label comment" type="select" sortOrder="10" showInDefault="1"
+                       showInWebsite="1" showInStore="1">
+                    <label>Refuse impostors</label>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    <comment>A request whose User-Agent names a crawler that an installed provider module declares, but whose address is outside the addresses that crawler's owner publishes, gets a 403 before the shop handles it. A request is never refused when the address lists have not been fetched yet, are older than seven days, or the visitor's address cannot be determined. Before turning this on, check under Client address that the shop sees your real address. Change this setting here, not from the command line: a command-line change may not reach the web server until it is reloaded.</comment>
+                </field>
+            </group>
+        </section>
+    </system>
+</config>

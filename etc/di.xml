@@ -1,0 +1,143 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Copyright (c) 2026. Volodymyr Hryvinskyi. All rights reserved.
+ * Author: Volodymyr Hryvinskyi <volodymyr@hryvinskyi.com>
+ * GitHub: https://github.com/hryvinskyi
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+    <preference for="Hryvinskyi\BotVerification\Api\Data\VerdictInterface"
+                type="Hryvinskyi\BotVerification\Model\Verdict"/>
+    <preference for="Hryvinskyi\BotVerification\Api\Data\RangeSnapshotInterface"
+                type="Hryvinskyi\BotVerification\Model\Range\RangeSnapshot"/>
+    <preference for="Hryvinskyi\BotVerification\Api\RangeSnapshotBuilderInterface"
+                type="Hryvinskyi\BotVerification\Model\Range\RangeSnapshotBuilder"/>
+    <preference for="Hryvinskyi\BotVerification\Api\AddressParserInterface"
+                type="Hryvinskyi\BotVerification\Model\Address\AddressParser"/>
+    <preference for="Hryvinskyi\BotVerification\Api\TimeSourceInterface"
+                type="Hryvinskyi\BotVerification\Model\SystemTimeSource"/>
+    <preference for="Hryvinskyi\BotVerification\Api\CrawlerRegistryInterface"
+                type="Hryvinskyi\BotVerification\Model\Crawler\CrawlerRegistry"/>
+    <preference for="Hryvinskyi\BotVerification\Api\ClaimMatcherInterface"
+                type="Hryvinskyi\BotVerification\Model\Crawler\UserAgentClaimMatcher"/>
+    <preference for="Hryvinskyi\BotVerification\Api\SnapshotFreshnessInterface"
+                type="Hryvinskyi\BotVerification\Model\Range\SnapshotFreshness"/>
+    <preference for="Hryvinskyi\BotVerification\Api\CrawlerVerifierInterface"
+                type="Hryvinskyi\BotVerification\Model\CrawlerVerifier"/>
+    <preference for="Hryvinskyi\BotVerification\Api\RequestVerifierInterface"
+                type="Hryvinskyi\BotVerification\Model\RequestVerifier"/>
+    <preference for="Hryvinskyi\BotVerification\Api\RangeSnapshotRepositoryInterface"
+                type="Hryvinskyi\BotVerification\Model\Storage\CachedRangeSnapshotRepository"/>
+    <preference for="Hryvinskyi\BotVerification\Api\RangeListFetcherInterface"
+                type="Hryvinskyi\BotVerification\Model\Source\HttpRangeListFetcher"/>
+    <preference for="Hryvinskyi\BotVerification\Api\RangeListRefresherInterface"
+                type="Hryvinskyi\BotVerification\Model\RangeListRefresher"/>
+    <preference for="Hryvinskyi\BotVerification\Api\Data\RefreshResultInterface"
+                type="Hryvinskyi\BotVerification\Model\RefreshResult"/>
+    <preference for="Hryvinskyi\BotVerification\Api\ConfigInterface"
+                type="Hryvinskyi\BotVerification\Model\Config"/>
+    <preference for="Hryvinskyi\BotVerification\Api\TrustedProxyRangesInterface"
+                type="Hryvinskyi\BotVerification\Model\Address\TrustedProxyRanges"/>
+    <preference for="Hryvinskyi\BotVerification\Api\ForwardingChainResolverInterface"
+                type="Hryvinskyi\BotVerification\Model\Address\ForwardingChainResolver"/>
+    <preference for="Hryvinskyi\BotVerification\Api\ClientAddressResolverInterface"
+                type="Hryvinskyi\BotVerification\Model\Address\ProxyChainClientAddressResolver"/>
+
+    <type name="Hryvinskyi\BotVerification\Model\Range\SnapshotFreshness">
+        <arguments>
+            <argument name="maxAge" xsi:type="number">604800</argument>
+        </arguments>
+    </type>
+    <!-- A request that claims no crawler never reads a snapshot, so the storage behind the repository is built only
+         when a claim has to be judged. -->
+    <type name="Hryvinskyi\BotVerification\Model\CrawlerVerifier">
+        <arguments>
+            <argument name="snapshots" xsi:type="object">Hryvinskyi\BotVerification\Api\RangeSnapshotRepositoryInterface\Proxy</argument>
+        </arguments>
+    </type>
+    <!-- Resolving the client address may read a list of trusted proxies; a request that claims no crawler must not
+         pay for building what does it. -->
+    <type name="Hryvinskyi\BotVerification\Model\RequestVerifier">
+        <arguments>
+            <argument name="clientAddressResolver" xsi:type="object">Hryvinskyi\BotVerification\Api\ClientAddressResolverInterface\Proxy</argument>
+        </arguments>
+    </type>
+    <!-- Most requests that reach the walk pass only the shop's own proxies, which are configured ranges: the storage
+         of the proxy lists is built only when an edge server has to be recognised. -->
+    <type name="Hryvinskyi\BotVerification\Model\Address\TrustedProxyRanges">
+        <arguments>
+            <argument name="snapshots" xsi:type="object">Hryvinskyi\BotVerification\Api\RangeSnapshotRepositoryInterface\Proxy</argument>
+        </arguments>
+    </type>
+    <type name="Hryvinskyi\BotVerification\Model\Storage\CachedRangeSnapshotRepository">
+        <arguments>
+            <argument name="inner" xsi:type="object">Hryvinskyi\BotVerification\Model\Storage\FlagRangeSnapshotRepository</argument>
+            <argument name="cache" xsi:type="object">Hryvinskyi\BotVerification\Model\Cache\Type\RangeSnapshotCache</argument>
+        </arguments>
+    </type>
+    <type name="Hryvinskyi\BotVerification\Model\Source\PrefixListParser">
+        <arguments>
+            <argument name="serializer" xsi:type="object">Magento\Framework\Serialize\Serializer\Json</argument>
+        </arguments>
+    </type>
+    <!-- One parser per format code a list can be declared with; a module whose lists come in another format adds its
+         own item. -->
+    <type name="Hryvinskyi\BotVerification\Model\Source\HttpRangeListFetcher">
+        <arguments>
+            <argument name="parsers" xsi:type="array">
+                <item name="prefix_json" xsi:type="object">Hryvinskyi\BotVerification\Model\Source\PrefixListParser</item>
+                <item name="plain_text" xsi:type="object">Hryvinskyi\BotVerification\Model\Source\PlainTextPrefixListParser</item>
+            </argument>
+        </arguments>
+    </type>
+
+    <type name="Magento\Framework\Console\CommandListInterface">
+        <arguments>
+            <argument name="commands" xsi:type="array">
+                <item name="hryvinskyi_bot_verification_refresh" xsi:type="object">Hryvinskyi\BotVerification\Console\Command\RefreshCommand</item>
+                <item name="hryvinskyi_bot_verification_check" xsi:type="object">Hryvinskyi\BotVerification\Console\Command\CheckCommand</item>
+                <item name="hryvinskyi_bot_verification_status" xsi:type="object">Hryvinskyi\BotVerification\Console\Command\StatusCommand</item>
+            </argument>
+        </arguments>
+    </type>
+    <!-- Every command is built whenever bin/magento starts, whichever command it runs, and an exception thrown while
+         building one fails every command - module:disable included. The services behind these three validate the
+         declared lists when they are built, so they are built only when one of these commands runs: a malformed
+         declaration then fails that command alone. -->
+    <type name="Hryvinskyi\BotVerification\Console\Command\RefreshCommand">
+        <arguments>
+            <argument name="refresher" xsi:type="object">Hryvinskyi\BotVerification\Api\RangeListRefresherInterface\Proxy</argument>
+        </arguments>
+    </type>
+    <type name="Hryvinskyi\BotVerification\Console\Command\CheckCommand">
+        <arguments>
+            <argument name="verifier" xsi:type="object">Hryvinskyi\BotVerification\Api\CrawlerVerifierInterface\Proxy</argument>
+            <argument name="chainResolver" xsi:type="object">Hryvinskyi\BotVerification\Api\ForwardingChainResolverInterface\Proxy</argument>
+        </arguments>
+    </type>
+    <type name="Hryvinskyi\BotVerification\Console\Command\StatusCommand">
+        <arguments>
+            <argument name="registry" xsi:type="object">Hryvinskyi\BotVerification\Api\CrawlerRegistryInterface\Proxy</argument>
+            <argument name="snapshots" xsi:type="object">Hryvinskyi\BotVerification\Api\RangeSnapshotRepositoryInterface\Proxy</argument>
+            <argument name="freshness" xsi:type="object">Hryvinskyi\BotVerification\Api\SnapshotFreshnessInterface\Proxy</argument>
+        </arguments>
+    </type>
+
+    <!-- Declared for every area, so storefront, admin, REST, SOAP and GraphQL requests are all judged. A plugin
+         declared without an order gets order 0, so the negative order makes this the outermost front-controller
+         plugin: it runs before the page caches, the form-key and no-store plugins, the store cookie, the database
+         status check, the base-URL redirect, the deployment-config check and every other one, and a refused request
+         reaches none of them. -->
+    <type name="Magento\Framework\App\FrontControllerInterface">
+        <plugin name="hryvinskyi_bot_verification_refuse_impostor"
+                type="Hryvinskyi\BotVerification\Plugin\RefuseImpostorPlugin" sortOrder="-10"/>
+    </type>
+    <!-- With refusal off the verifier is never asked, so nothing behind it is built. -->
+    <type name="Hryvinskyi\BotVerification\Plugin\RefuseImpostorPlugin">
+        <arguments>
+            <argument name="requestVerifier" xsi:type="object">Hryvinskyi\BotVerification\Api\RequestVerifierInterface\Proxy</argument>
+        </arguments>
+    </type>
+</config>

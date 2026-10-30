@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Copyright (c) 2026. Volodymyr Hryvinskyi. All rights reserved.
+ * Author: Volodymyr Hryvinskyi <volodymyr@hryvinskyi.com>
+ * GitHub: https://github.com/hryvinskyi
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Store:etc/config.xsd">
+    <default>
+        <hryvinskyi_bot_verification>
+            <client_address>
+                <!-- Loopback, private, carrier-grade NAT and unique-local space, where a site's own proxies live: a
+                     cache, a web server, a container network, an internal load balancer. -->
+                <trusted_proxies>127.0.0.0/8&#10;::1/128&#10;10.0.0.0/8&#10;172.16.0.0/12&#10;192.168.0.0/16&#10;100.64.0.0/10&#10;fc00::/7</trusted_proxies>
+            </client_address>
+            <impostor>
+                <!-- Off until a shop has fetched its lists and checked that it sees its visitors' real addresses. -->
+                <refuse>0</refuse>
+            </impostor>
+        </hryvinskyi_bot_verification>
+    </default>
+</config>

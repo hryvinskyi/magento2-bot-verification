@@ -1,0 +1,33 @@
+{
+    "name": "hryvinskyi/magento2-bot-verification",
+    "description": "Verifies that requests claiming to be a known crawler come from that crawler's published addresses",
+    "type": "magento2-module",
+    "version": "1.0.0",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Volodymyr Hryvinskyi",
+            "email": "volodymyr@hryvinskyi.com",
+            "homepage": "https://hryvinskyi.com"
+        }
+    ],
+    "require": {
+        "php": ">=8.1",
+        "hryvinskyi/magento2-base": "^2.2",
+        "magento/framework": ">=103.0.0",
+        "magento/module-backend": ">=102.0.0",
+        "magento/module-config": ">=101.0.0",
+        "magento/module-cron": ">=100.0.0",
+        "magento/module-store": ">=101.0.0",
+        "psr/log": "^1.0 || ^2.0 || ^3.0",
+        "symfony/console": "^5.4 || ^6.0 || ^7.0"
+    },
+    "autoload": {
+        "files": [
+            "registration.php"
+        ],
+        "psr-4": {
+            "Hryvinskyi\\BotVerification\\": ""
+        }
+    }
+}
