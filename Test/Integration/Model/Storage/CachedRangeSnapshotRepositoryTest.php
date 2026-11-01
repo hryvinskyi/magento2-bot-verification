@@ -16,6 +16,7 @@ use Hryvinskyi\BotVerification\Model\Cache\Type\RangeSnapshotCache;
 use Hryvinskyi\BotVerification\Model\Storage\CachedRangeSnapshotRepository;
 use Hryvinskyi\BotVerification\Model\Storage\FlagRangeSnapshotRepository;
 use Magento\Framework\App\Cache\StateInterface;
+use Magento\Framework\App\CacheInterface;
 use Magento\Framework\App\Cache\TypeListInterface;
 use Magento\Framework\DataObject;
 use Magento\Framework\FlagManager;
@@ -157,6 +158,28 @@ class CachedRangeSnapshotRepositoryTest extends TestCase
 
         self::decorator()->save(self::LIST_CODE, self::build(['203.0.113.0/27'], self::FETCHED_AT + 60));
         self::assertSame(self::FETCHED_AT + 60, self::decorator()->find(self::LIST_CODE)?->getFetchedAt());
+    }
+
+    /**
+     * The entries the decorator writes carry the cache type's tag, added by the cache type itself: cleaning the
+     * application cache by that tag removes a saved snapshot, so once its row is gone too a fresh decorator finds the
+     * list never stored
+     *
+     * @return void
+     */
+    public function testCleaningTheApplicationCacheByTheTypeTagRemovesTheEntries(): void
+    {
+        self::decorator()->save(self::LIST_CODE, self::build(['203.0.113.0/27'], self::FETCHED_AT));
+        self::get(FlagManager::class)->deleteFlag(self::FLAG_CODE);
+        self::assertSame(
+            self::FETCHED_AT,
+            self::decorator()->find(self::LIST_CODE)?->getFetchedAt(),
+            'The saved snapshot was not cached, so cleaning the cache would prove nothing.'
+        );
+
+        self::get(CacheInterface::class)->clean([RangeSnapshotCache::CACHE_TAG]);
+
+        self::assertNull(self::decorator()->find(self::LIST_CODE));
     }
 
     /**

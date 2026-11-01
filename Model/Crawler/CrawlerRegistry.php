@@ -67,7 +67,7 @@ use Hryvinskyi\BotVerification\Api\CrawlerRegistryInterface;
  */
 class CrawlerRegistry implements CrawlerRegistryInterface
 {
-    private const CODE_PATTERN = '/^[a-z0-9_]+$/';
+    private const CODE_PATTERN = '/^[a-z0-9_]+\z/';
     private const URL_SCHEME = 'https://';
 
     /**

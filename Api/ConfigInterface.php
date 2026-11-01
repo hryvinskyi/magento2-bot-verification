@@ -25,7 +25,11 @@ interface ConfigInterface
     /**
      * Whether a request that claims a crawler from outside that crawler's published addresses is refused
      *
-     * Read for the store the request is served in; off unless an administrator turned it on.
+     * Read before the request is routed, so for the store the request has been resolved to by then, which is not
+     * always the store the request goes on to be served in: a storefront request gets the store its host, store code
+     * or store cookie resolves to; a REST or GraphQL request gets the store its host resolves to, not the one named
+     * in the URL path or the `Store` header; the admin reads the default store view. Off unless an administrator
+     * turned it on for that store.
      *
      * @return bool
      */

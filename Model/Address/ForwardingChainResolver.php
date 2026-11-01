@@ -29,8 +29,14 @@ use Hryvinskyi\BotVerification\Api\TrustedProxyRangesInterface;
  * Only one edge server is passed because a network's published ranges hold more than the servers that forward
  * visitors: its customers run code there that can send a request with any X-Forwarded-For through the network to
  * this shop, and the network appends that code's address - an address inside its own ranges. Passing it as well would
- * read the header that code wrote. The entry left of the one edge server is the address the network received the
- * request from, whatever it is.
+ * read the header that code wrote.
+ *
+ * The entry left of the one edge server is the address the network received the request from only if the shop's
+ * origin accepts connections from the network's address space solely through the network's own proxy, for instance
+ * by requiring the network's client certificate on every connection to the origin. Where the origin can be reached
+ * around the network, code running inside it that connects straight to the origin is taken for the edge server, and
+ * the entry that code wrote is read as the client: an impostor passes as whatever address it chose, and no real
+ * crawler is refused because of it.
  *
  * On a site without any proxy the connecting address is the visitor's, and a forged X-Forwarded-For is never read.
  *

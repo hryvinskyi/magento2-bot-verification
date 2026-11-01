@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Hryvinskyi\BotVerification\Test\Unit\Plugin;
 
+use Hryvinskyi\BotVerification\Api\ConfigInterface;
 use Hryvinskyi\BotVerification\Api\Data\VerdictStatus;
 use Hryvinskyi\BotVerification\Api\RequestVerifierInterface;
 use Hryvinskyi\BotVerification\Model\Verdict;
@@ -24,8 +25,8 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * Only an impostor judged while refusal is on is refused, with the injected response turned into an uncacheable 403;
- * every other request - refusal off, any other verdict, a verification that fails, a response that is not an HTTP
- * one - is dispatched as usual.
+ * every other request - refusal off, any other verdict, a switch read or a verification that fails, a response that
+ * is not an HTTP one - is dispatched as usual, and a failure of the rest of the chain is never swallowed.
  */
 class RefuseImpostorPluginTest extends TestCase
 {
@@ -159,6 +160,63 @@ class RefuseImpostorPluginTest extends TestCase
             'exception' => [new \InvalidArgumentException('A crawler declares no token.')],
             'error' => [new \Error('Call to a member function on null')],
         ];
+    }
+
+    /**
+     * A switch that cannot be read lets the request through: the read is part of the guarded decision
+     *
+     * @dataProvider verificationFailures
+     * @param \Throwable $failure What the read of the switch throws
+     * @return void
+     */
+    public function testAFailedSwitchReadLetsTheRequestThrough(\Throwable $failure): void
+    {
+        $config = $this->createMock(ConfigInterface::class);
+        $config->method('isImpostorRefusalEnabled')->willThrowException($failure);
+        $verifier = $this->createMock(RequestVerifierInterface::class);
+        $verifier->expects(self::never())->method('verify');
+        $response = $this->createMock(HttpInterface::class);
+        $response->expects(self::never())->method('setHttpResponseCode');
+        $dispatched = $this->createMock(ResponseInterface::class);
+
+        $result = (new RefuseImpostorPlugin($config, $verifier, $response))
+            ->aroundDispatch(...$this->dispatch($dispatched));
+
+        self::assertSame($dispatched, $result);
+        self::assertSame(1, $this->proceedCalls);
+    }
+
+    /**
+     * An exception from the rest of the chain reaches the caller unchanged, whatever the verdict, and the rest of the
+     * chain is called once
+     *
+     * @return void
+     */
+    public function testAFailureOfTheRestOfTheChainPropagates(): void
+    {
+        $failure = new \RuntimeException('The page could not be rendered.');
+        $proceed = function () use ($failure): never {
+            ++$this->proceedCalls;
+
+            throw $failure;
+        };
+        $plugin = $this->plugin(
+            true,
+            $this->verifier(new Verdict(VerdictStatus::Genuine, 'example')),
+            $this->createMock(HttpInterface::class)
+        );
+
+        try {
+            $plugin->aroundDispatch(
+                $this->createMock(FrontControllerInterface::class),
+                $proceed,
+                $this->createMock(RequestInterface::class)
+            );
+            self::fail('The failure of the rest of the chain was swallowed.');
+        } catch (\RuntimeException $caught) {
+            self::assertSame($failure, $caught);
+        }
+        self::assertSame(1, $this->proceedCalls);
     }
 
     /**

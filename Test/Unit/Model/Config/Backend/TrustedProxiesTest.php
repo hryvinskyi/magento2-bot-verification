@@ -14,6 +14,7 @@ use Hryvinskyi\BotVerification\Api\Data\RangeSnapshotInterfaceFactory;
 use Hryvinskyi\BotVerification\Model\Config\Backend\TrustedProxies;
 use Hryvinskyi\BotVerification\Model\Range\RangeSnapshot;
 use Hryvinskyi\BotVerification\Model\Range\RangeSnapshotBuilder;
+use Hryvinskyi\BotVerification\Model\Text\LineListReader;
 use Magento\Framework\App\Cache\TypeListInterface;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\Event\ManagerInterface;
@@ -59,6 +60,7 @@ class TrustedProxiesTest extends TestCase
                 " 10.0.0.0/8 \r\n\r\n\t192.0.2.1/32\r\n  \r\n3fff::/20  ",
                 "10.0.0.0/8\n192.0.2.1/32\n3fff::/20",
             ],
+            'carriage returns alone' => ["10.0.0.0/8\r192.0.2.1/32\r", "10.0.0.0/8\n192.0.2.1/32"],
             'empty' => ['', ''],
             'blank lines only' => ["\r\n  \n", ''],
             'emptied field' => [null, ''],
@@ -115,7 +117,8 @@ class TrustedProxiesTest extends TestCase
             $this->createMock(Registry::class),
             $this->createMock(ScopeConfigInterface::class),
             $this->createMock(TypeListInterface::class),
-            new RangeSnapshotBuilder($this->snapshotFactory())
+            new RangeSnapshotBuilder($this->snapshotFactory()),
+            new LineListReader()
         );
         $setting->setData('value', $submitted);
 

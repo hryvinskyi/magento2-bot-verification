@@ -12,6 +12,7 @@ namespace Hryvinskyi\BotVerification\Test\Integration\Console\Command;
 use Hryvinskyi\BotVerification\Api\Data\RefreshResultInterface;
 use Hryvinskyi\BotVerification\Api\Data\RefreshResultInterfaceFactory;
 use Hryvinskyi\BotVerification\Console\Command\RefreshCommand;
+use Hryvinskyi\BotVerification\Exception\RangeListStorageException;
 use Hryvinskyi\BotVerification\Test\Double\ScriptedRangeListRefresher;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\TestFramework\Helper\Bootstrap;
@@ -35,8 +36,8 @@ class RefreshCommandTest extends TestCase
     {
         $refresher = new ScriptedRangeListRefresher(self::result(
             ['example_main' => 12],
-            ['example_extra' => 'The list shrank from 5 to 2 ranges; the previous list is kept. Refresh with --force '
-                . 'to accept it.']
+            ['example_extra' => 'The list\'s IPv4 ranges shrank from 5 addresses to 2 addresses; the previous list '
+                . 'is kept. Refresh with --force to accept it.']
         ));
         $tester = self::tester($refresher);
 
@@ -45,8 +46,8 @@ class RefreshCommandTest extends TestCase
         self::assertSame(Command::FAILURE, $exitCode);
         self::assertSame(
             "example_main: 12 ranges\n"
-            . "example_extra: rejected — The list shrank from 5 to 2 ranges; the previous list is kept. Refresh with "
-            . "--force to accept it.\n",
+            . "example_extra: rejected — The list's IPv4 ranges shrank from 5 addresses to 2 addresses; the previous "
+            . "list is kept. Refresh with --force to accept it.\n",
             $tester->getDisplay()
         );
         self::assertSame([['listCodes' => [], 'acceptShrink' => false]], $refresher->calls);
@@ -125,6 +126,39 @@ class RefreshCommandTest extends TestCase
             $tester->getDisplay()
         );
         self::assertSame([['listCodes' => ['example_typo'], 'acceptShrink' => false]], $refresher->calls);
+    }
+
+    /**
+     * A list that could not be stored ends the command with a failure, after the lists the refresh dealt with before
+     * it are printed - the rejected ones included - and then the storage failure as an error
+     *
+     * @return void
+     */
+    public function testAStorageFailurePrintsWhatWasRecordedBeforeIt(): void
+    {
+        $tester = self::tester(new ScriptedRangeListRefresher(new RangeListStorageException(
+            __(
+                'The address list %1 could not be stored and the refresh stopped: %2',
+                'example_edge',
+                'The storage is unavailable.'
+            ),
+            'example_edge',
+            self::result(['example_extra' => 3], ['example_main' => 'The list could not be fetched.']),
+            new \RuntimeException('The storage is unavailable.')
+        )));
+
+        $exitCode = $tester->execute([], ['decorated' => true]);
+
+        self::assertSame(Command::FAILURE, $exitCode);
+        self::assertSame(
+            self::decorated('example_extra: 3 ranges') . "\n"
+            . self::decorated('<error>example_main: rejected — The list could not be fetched.</error>') . "\n"
+            . self::decorated(
+                '<error>The address list example_edge could not be stored and the refresh stopped: The storage is '
+                . 'unavailable.</error>'
+            ) . "\n",
+            $tester->getDisplay()
+        );
     }
 
     /**

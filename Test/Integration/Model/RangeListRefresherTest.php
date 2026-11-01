@@ -12,11 +12,13 @@ namespace Hryvinskyi\BotVerification\Test\Integration\Model;
 use Hryvinskyi\BotVerification\Api\Data\RangeSnapshotInterface;
 use Hryvinskyi\BotVerification\Api\RangeListRefresherInterface;
 use Hryvinskyi\BotVerification\Exception\RangeListRejectedException;
+use Hryvinskyi\BotVerification\Exception\RangeListStorageException;
 use Hryvinskyi\BotVerification\Model\Cache\Type\RangeSnapshotCache;
 use Hryvinskyi\BotVerification\Model\Crawler\CrawlerRegistry;
 use Hryvinskyi\BotVerification\Model\RangeListRefresher;
 use Hryvinskyi\BotVerification\Model\RefreshResult;
 use Hryvinskyi\BotVerification\Model\Storage\CachedRangeSnapshotRepository;
+use Hryvinskyi\BotVerification\Test\Double\SaveFailingRangeSnapshotRepository;
 use Hryvinskyi\BotVerification\Test\Double\ScriptedRangeListFetcher;
 use Magento\Framework\App\Cache\StateInterface;
 use Magento\TestFramework\Helper\Bootstrap;
@@ -36,6 +38,8 @@ class RangeListRefresherTest extends TestCase
 {
     private const LIST_CODE = 'example_refreshed';
     private const URL = 'https://example.com/refreshed.json';
+    private const SECOND_LIST_CODE = 'example_second';
+    private const SECOND_URL = 'https://example.com/second.json';
 
     /**
      * @inheritDoc
@@ -128,12 +132,86 @@ class RangeListRefresherTest extends TestCase
 
         self::assertSame(
             [
-                self::LIST_CODE => 'The list shrank from 5 to 2 ranges; the previous list is kept. '
-                    . 'Refresh with --force to accept it.',
+                self::LIST_CODE => 'The list\'s IPv4 ranges shrank from 5 addresses to 2 addresses; the previous '
+                    . 'list is kept. Refresh with --force to accept it.',
             ],
             $result->getRejected()
         );
         self::assertSameSnapshot($stored, self::freshRepository()->find(self::LIST_CODE));
+    }
+
+    /**
+     * A later refresh that drops the list's IPv4 family is held back against the snapshot read back from storage,
+     * though it keeps as many IPv6 blocks as the stored list had in both families
+     *
+     * @return void
+     */
+    public function testAListThatLosesAFamilyIsHeldBackAgainstTheStoredSnapshot(): void
+    {
+        self::refresher(new ScriptedRangeListFetcher([
+            self::URL => ['192.0.2.0/24', '2001:db8:4801::/64'],
+        ]))->refresh();
+        $stored = self::freshRepository()->find(self::LIST_CODE);
+        self::assertNotNull($stored);
+
+        $result = self::refresher(new ScriptedRangeListFetcher([
+            self::URL => ['2001:db8:4801::/64', '2001:db8:4803::/64'],
+        ]))->refresh();
+
+        self::assertSame(
+            [
+                self::LIST_CODE => 'The list\'s IPv4 ranges shrank from 256 addresses to no addresses; the previous '
+                    . 'list is kept. Refresh with --force to accept it.',
+            ],
+            $result->getRejected()
+        );
+        self::assertSameSnapshot($stored, self::freshRepository()->find(self::LIST_CODE));
+    }
+
+    /**
+     * A list that cannot be stored ends the refresh with an exception that names it and carries, through the
+     * generated result factory, the rejection of the list refreshed before it
+     *
+     * @return void
+     */
+    public function testAStorageFailureCarriesTheRejectionRecordedBeforeIt(): void
+    {
+        $failure = new \RuntimeException('The storage is unavailable.');
+        $objectManager = Bootstrap::getObjectManager();
+        $registry = $objectManager->create(CrawlerRegistry::class, [
+            'crawlers' => [
+                'example' => [
+                    'tokens' => ['examplebot' => 'ExampleBot'],
+                    'lists' => [self::LIST_CODE => self::LIST_CODE, self::SECOND_LIST_CODE => self::SECOND_LIST_CODE],
+                ],
+            ],
+            'rangeLists' => [self::LIST_CODE => self::URL, self::SECOND_LIST_CODE => self::SECOND_URL],
+            'rangeListFormats' => [],
+            'proxyLists' => [],
+        ]);
+        $refresher = $objectManager->create(RangeListRefresher::class, [
+            'registry' => $registry,
+            'fetcher' => new ScriptedRangeListFetcher([
+                self::URL => new RangeListRejectedException(__('The list could not be fetched.')),
+                self::SECOND_URL => ['192.0.2.0/24'],
+            ]),
+            'snapshots' => new SaveFailingRangeSnapshotRepository(self::SECOND_LIST_CODE, $failure),
+        ]);
+        self::assertInstanceOf(RangeListRefresher::class, $refresher);
+
+        try {
+            $refresher->refresh();
+            self::fail('A storage failure did not end the refresh.');
+        } catch (RangeListStorageException $exception) {
+            self::assertSame(self::SECOND_LIST_CODE, $exception->getListCode());
+            self::assertSame($failure, $exception->getPrevious());
+            self::assertInstanceOf(RefreshResult::class, $exception->getResult());
+            self::assertSame(
+                [self::LIST_CODE => 'The list could not be fetched.'],
+                $exception->getResult()->getRejected()
+            );
+            self::assertSame([], $exception->getResult()->getRefreshed());
+        }
     }
 
     /**

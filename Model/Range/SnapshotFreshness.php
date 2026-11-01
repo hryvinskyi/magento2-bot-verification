@@ -22,13 +22,18 @@ use Hryvinskyi\BotVerification\Api\TimeSourceInterface;
 class SnapshotFreshness implements SnapshotFreshnessInterface
 {
     /**
+     * The maximum age in seconds a snapshot may have by default, a week; the one place the number is written
+     */
+    public const DEFAULT_MAX_AGE = 604800;
+
+    /**
      * @param TimeSourceInterface $timeSource The current moment
      * @param int $maxAge Maximum age in seconds; a week by default
      * @throws \InvalidArgumentException When the maximum age is not positive
      */
     public function __construct(
         private readonly TimeSourceInterface $timeSource,
-        private readonly int $maxAge = 604800
+        private readonly int $maxAge = self::DEFAULT_MAX_AGE
     ) {
         if ($maxAge <= 0) {
             throw new \InvalidArgumentException(sprintf(

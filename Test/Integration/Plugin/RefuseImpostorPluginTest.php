@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Hryvinskyi\BotVerification\Test\Integration\Plugin;
 
+use Hryvinskyi\BotVerification\Api\ConfigInterface;
 use Hryvinskyi\BotVerification\Api\RangeSnapshotBuilderInterface;
 use Hryvinskyi\BotVerification\Model\Address\ForwardingChainResolver;
 use Hryvinskyi\BotVerification\Model\Address\ProxyChainClientAddressResolver;
@@ -255,6 +256,21 @@ class RefuseImpostorPluginTest extends TestCase
     }
 
     /**
+     * A switch that cannot be read - as when the store is resolved this early and fails - dispatches an impostor
+     *
+     * @return void
+     */
+    public function testAnUnreadableSwitchRefusesNobody(): void
+    {
+        self::seedFresh();
+        $config = $this->createMock(ConfigInterface::class);
+        $config->method('isImpostorRefusalEnabled')
+            ->willThrowException(new \RuntimeException('Default store is inactive'));
+
+        self::assertDispatched(self::judge(self::CRAWLER_UA, self::IMPOSTOR, '', $config));
+    }
+
+    /**
      * The request was refused: the plugin returned its own response with a 403 and never called the rest of the chain
      *
      * @param array{result: ResponseInterface|ResultInterface, proceeded: bool, response: HttpResponse} $outcome
@@ -287,10 +303,15 @@ class RefuseImpostorPluginTest extends TestCase
      * @param string $userAgent User-Agent header
      * @param string $remoteAddress Connecting address
      * @param string $forwardedFor X-Forwarded-For header; '' for none
+     * @param ConfigInterface|null $config Settings to give the plugin instead of the container's
      * @return array{result: ResponseInterface|ResultInterface, proceeded: bool, response: HttpResponse}
      */
-    private static function judge(string $userAgent, string $remoteAddress, string $forwardedFor = ''): array
-    {
+    private static function judge(
+        string $userAgent,
+        string $remoteAddress,
+        string $forwardedFor = '',
+        ?ConfigInterface $config = null
+    ): array {
         $server = ['HTTP_USER_AGENT' => $userAgent, 'REMOTE_ADDR' => $remoteAddress];
         if ($forwardedFor !== '') {
             $server['HTTP_X_FORWARDED_FOR'] = $forwardedFor;
@@ -301,7 +322,7 @@ class RefuseImpostorPluginTest extends TestCase
         $dispatched = self::create(HttpResponse::class);
 
         $proceeded = false;
-        $result = self::plugin($request, $response)->aroundDispatch(
+        $result = self::plugin($request, $response, $config)->aroundDispatch(
             self::frontController(),
             static function (RequestInterface $passed) use (&$proceeded, $request, $dispatched): HttpResponse {
                 self::assertSame($request, $passed);
@@ -320,10 +341,14 @@ class RefuseImpostorPluginTest extends TestCase
      *
      * @param Request $request The request to judge
      * @param HttpResponse $response The response a refusal fills
+     * @param ConfigInterface|null $config Settings to give the plugin instead of the container's
      * @return RefuseImpostorPlugin
      */
-    private static function plugin(Request $request, HttpResponse $response): RefuseImpostorPlugin
-    {
+    private static function plugin(
+        Request $request,
+        HttpResponse $response,
+        ?ConfigInterface $config = null
+    ): RefuseImpostorPlugin {
         $registry = self::registry();
         $claimMatcher = self::create(UserAgentClaimMatcher::class, ['registry' => $registry]);
         $trustedProxies = self::create(TrustedProxyRanges::class, [
@@ -345,10 +370,12 @@ class RefuseImpostorPluginTest extends TestCase
             ]),
         ]);
 
-        return self::create(RefuseImpostorPlugin::class, [
-            'requestVerifier' => $requestVerifier,
-            'response' => $response,
-        ]);
+        $arguments = ['requestVerifier' => $requestVerifier, 'response' => $response];
+        if ($config !== null) {
+            $arguments['config'] = $config;
+        }
+
+        return self::create(RefuseImpostorPlugin::class, $arguments);
     }
 
     /**

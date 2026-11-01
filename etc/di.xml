@@ -36,6 +36,8 @@
                 type="Hryvinskyi\BotVerification\Model\RangeListRefresher"/>
     <preference for="Hryvinskyi\BotVerification\Api\Data\RefreshResultInterface"
                 type="Hryvinskyi\BotVerification\Model\RefreshResult"/>
+    <preference for="Hryvinskyi\BotVerification\Api\LineListReaderInterface"
+                type="Hryvinskyi\BotVerification\Model\Text\LineListReader"/>
     <preference for="Hryvinskyi\BotVerification\Api\ConfigInterface"
                 type="Hryvinskyi\BotVerification\Model\Config"/>
     <preference for="Hryvinskyi\BotVerification\Api\TrustedProxyRangesInterface"
@@ -45,11 +47,6 @@
     <preference for="Hryvinskyi\BotVerification\Api\ClientAddressResolverInterface"
                 type="Hryvinskyi\BotVerification\Model\Address\ProxyChainClientAddressResolver"/>
 
-    <type name="Hryvinskyi\BotVerification\Model\Range\SnapshotFreshness">
-        <arguments>
-            <argument name="maxAge" xsi:type="number">604800</argument>
-        </arguments>
-    </type>
     <!-- A request that claims no crawler never reads a snapshot, so the storage behind the repository is built only
          when a claim has to be judged. -->
     <type name="Hryvinskyi\BotVerification\Model\CrawlerVerifier">
@@ -69,6 +66,14 @@
     <type name="Hryvinskyi\BotVerification\Model\Address\TrustedProxyRanges">
         <arguments>
             <argument name="snapshots" xsi:type="object">Hryvinskyi\BotVerification\Api\RangeSnapshotRepositoryInterface\Proxy</argument>
+        </arguments>
+    </type>
+    <!-- The resolver is built from the crawler registry, which refuses a malformed declaration while it is built. The
+         configuration form builds this row whenever the section is opened, so the resolver is built only when the
+         row asks for the address and the row can report the refusal. -->
+    <type name="Hryvinskyi\BotVerification\Block\Adminhtml\System\Config\AddressCheck">
+        <arguments>
+            <argument name="clientAddressResolver" xsi:type="object">Hryvinskyi\BotVerification\Api\ClientAddressResolverInterface\Proxy</argument>
         </arguments>
     </type>
     <type name="Hryvinskyi\BotVerification\Model\Storage\CachedRangeSnapshotRepository">
@@ -128,8 +133,8 @@
     <!-- Declared for every area, so storefront, admin, REST, SOAP and GraphQL requests are all judged. A plugin
          declared without an order gets order 0, so the negative order makes this the outermost front-controller
          plugin: it runs before the page caches, the form-key and no-store plugins, the store cookie, the database
-         status check, the base-URL redirect, the deployment-config check and every other one, and a refused request
-         reaches none of them. -->
+         status check, the base-URL redirect, the deployment-config check and every other one. A refused request skips
+         routing and all of those plugins; the observers that run when a response is sent still run. -->
     <type name="Magento\Framework\App\FrontControllerInterface">
         <plugin name="hryvinskyi_bot_verification_refuse_impostor"
                 type="Hryvinskyi\BotVerification\Plugin\RefuseImpostorPlugin" sortOrder="-10"/>

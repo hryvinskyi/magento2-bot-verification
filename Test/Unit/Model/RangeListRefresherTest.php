@@ -15,6 +15,7 @@ use Hryvinskyi\BotVerification\Api\Data\RefreshResultInterface;
 use Hryvinskyi\BotVerification\Api\Data\RefreshResultInterfaceFactory;
 use Hryvinskyi\BotVerification\Api\RangeSnapshotRepositoryInterface;
 use Hryvinskyi\BotVerification\Exception\RangeListRejectedException;
+use Hryvinskyi\BotVerification\Exception\RangeListStorageException;
 use Hryvinskyi\BotVerification\Model\Crawler\CrawlerRegistry;
 use Hryvinskyi\BotVerification\Model\Range\RangeSnapshot;
 use Hryvinskyi\BotVerification\Model\Range\RangeSnapshotBuilder;
@@ -22,6 +23,7 @@ use Hryvinskyi\BotVerification\Model\RangeListRefresher;
 use Hryvinskyi\BotVerification\Model\RefreshResult;
 use Hryvinskyi\BotVerification\Test\Double\FixedTimeSource;
 use Hryvinskyi\BotVerification\Test\Double\InMemoryRangeSnapshotRepository;
+use Hryvinskyi\BotVerification\Test\Double\SaveFailingRangeSnapshotRepository;
 use Hryvinskyi\BotVerification\Test\Double\ScriptedRangeListFetcher;
 use Magento\Framework\Exception\LocalizedException;
 use PHPUnit\Framework\TestCase;
@@ -204,14 +206,171 @@ class RangeListRefresherTest extends TestCase
 
         self::assertSame(
             [
-                self::MAIN => 'The list shrank from 10 to 4 ranges; the previous list is kept. '
-                    . 'Refresh with --force to accept it.',
+                self::MAIN => 'The list\'s IPv4 ranges shrank from 10 addresses to 4 addresses; the previous list '
+                    . 'is kept. Refresh with --force to accept it.',
             ],
             $result->getRejected()
         );
         self::assertSame([], $result->getRefreshed());
         self::assertSame([], $repository->saved);
         self::assertSame($previous, $repository->find(self::MAIN));
+    }
+
+    /**
+     * A publisher that fills the gaps between its blocks covers more address space in fewer blocks: the list is
+     * stored, however few blocks it merges into
+     *
+     * @return void
+     */
+    public function testAListThatFillsItsGapsIsStoredThoughItMergesIntoFewerBlocks(): void
+    {
+        $repository = new InMemoryRangeSnapshotRepository();
+        $this->seed($repository, self::MAIN, 10);
+        $fetcher = new ScriptedRangeListFetcher([self::MAIN_URL => ['198.51.100.0/27']]);
+
+        $result = $this->refresher($fetcher, $repository)->refresh([self::MAIN]);
+
+        self::assertSame([], $result->getRejected());
+        self::assertSame([self::MAIN => 1], $result->getRefreshed());
+        self::assertSame([self::MAIN], $repository->saved);
+    }
+
+    /**
+     * A list that drops every IPv4 prefix but keeps as many IPv6 blocks as it had IPv4 ones is held back: the
+     * family it lost covers nothing now, whatever the total number of blocks says
+     *
+     * @return void
+     */
+    public function testAListThatLosesAFamilyIsHeldBackThoughItKeepsHalfItsBlocks(): void
+    {
+        $repository = new InMemoryRangeSnapshotRepository();
+        $previous = $this->seedPrefixes(
+            $repository,
+            self::MAIN,
+            ['192.0.2.0/24', '198.51.100.0/24', '2001:db8:1::/48', '2001:db8:3::/48']
+        );
+        $fetcher = new ScriptedRangeListFetcher([self::MAIN_URL => ['2001:db8:1::/48', '2001:db8:3::/48']]);
+
+        $result = $this->refresher($fetcher, $repository)->refresh([self::MAIN]);
+
+        self::assertSame(
+            [
+                self::MAIN => 'The list\'s IPv4 ranges shrank from 512 addresses to no addresses; the previous list '
+                    . 'is kept. Refresh with --force to accept it.',
+            ],
+            $result->getRejected()
+        );
+        self::assertSame([], $repository->saved);
+        self::assertSame($previous, $repository->find(self::MAIN));
+    }
+
+    /**
+     * A list whose prefixes all narrowed keeps its number of blocks but covers a fraction of its address space: it
+     * is held back
+     *
+     * @return void
+     */
+    public function testAListWhosePrefixesNarrowedIsHeldBackThoughItKeepsItsBlocks(): void
+    {
+        $repository = new InMemoryRangeSnapshotRepository();
+        $previous = $this->seedPrefixes(
+            $repository,
+            self::MAIN,
+            ['198.18.0.0/20', '198.18.32.0/20', '198.18.64.0/20']
+        );
+        $fetcher = new ScriptedRangeListFetcher([
+            self::MAIN_URL => ['198.18.0.0/28', '198.18.32.0/28', '198.18.64.0/28'],
+        ]);
+
+        $result = $this->refresher($fetcher, $repository)->refresh([self::MAIN]);
+
+        self::assertSame(
+            [
+                self::MAIN => 'The list\'s IPv4 ranges shrank from 12,288 addresses to 48 addresses; the previous '
+                    . 'list is kept. Refresh with --force to accept it.',
+            ],
+            $result->getRejected()
+        );
+        self::assertSame([], $repository->saved);
+        self::assertSame($previous, $repository->find(self::MAIN));
+    }
+
+    /**
+     * An IPv6 list that narrowed is held back, its coverage named as the prefix that would cover as much
+     *
+     * @return void
+     */
+    public function testAnIpv6ListThatNarrowedIsHeldBackWithItsCoverageAsAPrefix(): void
+    {
+        $repository = new InMemoryRangeSnapshotRepository();
+        $this->seedPrefixes($repository, self::MAIN, ['2001:db8::/32', '192.0.2.0/24']);
+        $fetcher = new ScriptedRangeListFetcher([self::MAIN_URL => ['2001:db8::/40', '192.0.2.0/24']]);
+
+        $result = $this->refresher($fetcher, $repository)->refresh([self::MAIN]);
+
+        self::assertSame(
+            [
+                self::MAIN => 'The list\'s IPv6 ranges shrank from the space of a /32.0 to the space of a /40.0; the '
+                    . 'previous list is kept. Refresh with --force to accept it.',
+            ],
+            $result->getRejected()
+        );
+        self::assertSame([], $repository->saved);
+    }
+
+    /**
+     * An IPv6 list that kept exactly half of its address space is stored
+     *
+     * @return void
+     */
+    public function testAnIpv6ListThatKeptHalfItsSpaceIsStored(): void
+    {
+        $repository = new InMemoryRangeSnapshotRepository();
+        $this->seedPrefixes($repository, self::MAIN, ['2001:db8::/32']);
+        $fetcher = new ScriptedRangeListFetcher([self::MAIN_URL => ['2001:db8::/33']]);
+
+        $result = $this->refresher($fetcher, $repository)->refresh([self::MAIN]);
+
+        self::assertSame([self::MAIN => 1], $result->getRefreshed());
+        self::assertSame([self::MAIN], $repository->saved);
+    }
+
+    /**
+     * A family the stored list never held cannot shrink, and a family the new list adds is growth
+     *
+     * @return void
+     */
+    public function testAListThatAddsAFamilyIsStored(): void
+    {
+        $repository = new InMemoryRangeSnapshotRepository();
+        $this->seedPrefixes($repository, self::MAIN, ['192.0.2.0/24']);
+        $fetcher = new ScriptedRangeListFetcher([self::MAIN_URL => ['192.0.2.0/24', '2001:db8::/128']]);
+
+        $result = $this->refresher($fetcher, $repository)->refresh([self::MAIN]);
+
+        self::assertSame([self::MAIN => 2], $result->getRefreshed());
+    }
+
+    /**
+     * A shrink to a single address is named in the singular
+     *
+     * @return void
+     */
+    public function testAShrinkToOneAddressIsNamedInTheSingular(): void
+    {
+        $repository = new InMemoryRangeSnapshotRepository();
+        $this->seed($repository, self::MAIN, 3);
+        $fetcher = new ScriptedRangeListFetcher([self::MAIN_URL => self::prefixes(1)]);
+
+        $result = $this->refresher($fetcher, $repository)->refresh([self::MAIN]);
+
+        self::assertSame(
+            [
+                self::MAIN => 'The list\'s IPv4 ranges shrank from 3 addresses to 1 address; the previous list is '
+                    . 'kept. Refresh with --force to accept it.',
+            ],
+            $result->getRejected()
+        );
     }
 
     /**
@@ -267,18 +426,17 @@ class RangeListRefresherTest extends TestCase
     }
 
     /**
-     * A failure to store a list is not a rejection: it ends the refresh
+     * A failure to store a list is not a rejection: it ends the refresh, naming the list, chaining the storage's
+     * exception and carrying what the refresh did before it - the rejection of an earlier list included
      *
      * @return void
      */
-    public function testAStorageFailureEndsTheRefresh(): void
+    public function testAStorageFailureEndsTheRefreshAndKeepsWhatWasRecordedBeforeIt(): void
     {
         $failure = new \RuntimeException('The storage is unavailable.');
-        $repository = $this->createMock(RangeSnapshotRepositoryInterface::class);
-        $repository->method('find')->willReturn(null);
-        $repository->expects(self::once())->method('save')->willThrowException($failure);
+        $repository = new SaveFailingRangeSnapshotRepository(self::EXTRA, $failure);
         $fetcher = new ScriptedRangeListFetcher([
-            self::MAIN_URL => ['192.0.2.0/24'],
+            self::MAIN_URL => new RangeListRejectedException(__('The list could not be fetched.')),
             self::EXTRA_URL => ['203.0.113.0/27'],
             self::EDGE_URL => ['198.51.100.0/24'],
         ]);
@@ -286,12 +444,49 @@ class RangeListRefresherTest extends TestCase
         $caught = null;
         try {
             $this->refresher($fetcher, $repository)->refresh();
-        } catch (\RuntimeException $exception) {
+        } catch (RangeListStorageException $exception) {
             $caught = $exception;
         }
 
-        self::assertSame($failure, $caught, 'A storage failure did not end the refresh.');
-        self::assertSame([self::MAIN_URL], array_column($fetcher->requests, 'url'));
+        self::assertNotNull($caught, 'A storage failure did not end the refresh with the storage exception.');
+        self::assertSame($failure, $caught->getPrevious());
+        self::assertSame(self::EXTRA, $caught->getListCode());
+        self::assertSame(
+            'The address list example_extra could not be stored and the refresh stopped: The storage is unavailable.',
+            $caught->getMessage()
+        );
+        self::assertSame([self::MAIN => 'The list could not be fetched.'], $caught->getResult()->getRejected());
+        self::assertSame([], $caught->getResult()->getRefreshed());
+        self::assertSame([self::MAIN_URL, self::EXTRA_URL], array_column($fetcher->requests, 'url'));
+        self::assertSame([], $repository->saved);
+    }
+
+    /**
+     * The lists stored before a storage failure are carried as refreshed
+     *
+     * @return void
+     */
+    public function testAStorageFailureCarriesTheListsStoredBeforeIt(): void
+    {
+        $repository = new SaveFailingRangeSnapshotRepository(
+            self::EDGE,
+            new \RuntimeException('The storage is unavailable.')
+        );
+        $fetcher = new ScriptedRangeListFetcher([
+            self::MAIN_URL => ['192.0.2.0/24'],
+            self::EXTRA_URL => ['203.0.113.0/27', '2001:db8:4801::/64'],
+            self::EDGE_URL => ['198.51.100.0/24'],
+        ]);
+
+        try {
+            $this->refresher($fetcher, $repository)->refresh();
+            self::fail('A storage failure did not end the refresh.');
+        } catch (RangeListStorageException $exception) {
+            self::assertSame([self::MAIN => 1, self::EXTRA => 2], $exception->getResult()->getRefreshed());
+            self::assertSame([], $exception->getResult()->getRejected());
+            self::assertSame(self::EDGE, $exception->getListCode());
+        }
+        self::assertSame([self::MAIN, self::EXTRA], $repository->saved);
     }
 
     /**
@@ -355,7 +550,23 @@ class RangeListRefresherTest extends TestCase
         string $listCode,
         int $ranges
     ): RangeSnapshotInterface {
-        $snapshot = $this->builder()->build(self::prefixes($ranges), self::NOW - 21600);
+        return $this->seedPrefixes($repository, $listCode, self::prefixes($ranges));
+    }
+
+    /**
+     * Store a snapshot of the given prefixes for a list, as an earlier refresh would have
+     *
+     * @param InMemoryRangeSnapshotRepository $repository Where to store it
+     * @param string $listCode Code of the list
+     * @param list<string> $prefixes Prefixes the stored list was built from
+     * @return RangeSnapshotInterface The stored snapshot
+     */
+    private function seedPrefixes(
+        InMemoryRangeSnapshotRepository $repository,
+        string $listCode,
+        array $prefixes
+    ): RangeSnapshotInterface {
+        $snapshot = $this->builder()->build($prefixes, self::NOW - 21600);
         $repository->save($listCode, $snapshot);
         $repository->saved = [];
 

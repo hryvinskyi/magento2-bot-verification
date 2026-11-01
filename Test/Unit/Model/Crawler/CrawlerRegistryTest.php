@@ -199,6 +199,18 @@ class CrawlerRegistryTest extends TestCase
                 ['crawlers' => ['123' => $valid], 'rangeLists' => $lists],
                 'crawler code "123"',
             ],
+            'crawler code with a trailing line feed' => [
+                ['crawlers' => ["example\n" => $valid], 'rangeLists' => $lists],
+                "crawler code \"example\n\"",
+            ],
+            'list code with a trailing line feed' => [
+                ['rangeLists' => ["example_list\n" => self::EXAMPLE_URL]],
+                "address list code \"example_list\n\"",
+            ],
+            'format code with a trailing line feed' => [
+                ['rangeLists' => $lists, 'rangeListFormats' => ['example_list' => "plain_text\n"]],
+                "The format code \"plain_text\n\" of address list \"example_list\"",
+            ],
             'empty crawler code' => [
                 ['crawlers' => ['' => $valid], 'rangeLists' => $lists],
                 'crawler code ""',

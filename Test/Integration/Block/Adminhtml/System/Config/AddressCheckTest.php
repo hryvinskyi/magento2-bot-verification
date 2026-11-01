@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Hryvinskyi\BotVerification\Test\Integration\Block\Adminhtml\System\Config;
 
+use Hryvinskyi\BotVerification\Api\ClientAddressResolverInterface;
 use Hryvinskyi\BotVerification\Block\Adminhtml\System\Config\AddressCheck;
 use Hryvinskyi\BotVerification\Model\Address\ForwardingChainResolver;
 use Hryvinskyi\BotVerification\Model\Address\ProxyChainClientAddressResolver;
@@ -70,21 +71,77 @@ class AddressCheckTest extends TestCase
     }
 
     /**
-     * A request that reached the shop only through trusted proxies has no visitor address, and the row says why;
-     * a header the request does not carry is shown as a dash
+     * A request that reached the shop only through trusted proxies has no visitor address; the row says so without
+     * claiming a cause, and points to the command that reproduces the result. A header the request does not carry is
+     * shown as a dash
      *
      * @return void
      */
-    public function testExplainsAVisitorThatCannotBeDetermined(): void
+    public function testSaysAVisitorCannotBeDeterminedWithoutNamingACause(): void
     {
         $html = self::block('127.0.0.1', null)->render(self::element());
 
         self::assertStringContainsString('X-Forwarded-For: —', $html);
         self::assertStringContainsString(
-            'Visitor address: cannot be determined — the request reached the shop only through trusted proxies, '
-            . 'or a proxy list has not been fetched yet',
+            'Visitor address: cannot be determined from this request&#039;s forwarding chain — run bin/magento '
+            . 'bot-verification:check with the same addresses to reproduce it',
             $html
         );
+    }
+
+    /**
+     * A provider module's malformed declaration makes the resolver refuse to be built; the row shows the message,
+     * escaped, as the visitor-address line, with the other two lines intact, instead of throwing
+     *
+     * @return void
+     */
+    public function testShowsAMalformedDeclarationInsteadOfThrowing(): void
+    {
+        $resolver = $this->createMock(ClientAddressResolverInterface::class);
+        $resolver->method('resolve')->willThrowException(
+            new \InvalidArgumentException('The crawler code "<b>Bad</b>" must be made of lower-case letters.')
+        );
+
+        $html = self::blockOver('127.0.0.1', '198.51.100.7', $resolver)->render(self::element());
+
+        self::assertStringContainsString('Connection from: 127.0.0.1', $html);
+        self::assertStringContainsString('X-Forwarded-For: 198.51.100.7', $html);
+        self::assertStringContainsString(
+            'Visitor address: cannot be determined: The crawler code &quot;&lt;b&gt;Bad&lt;/b&gt;&quot; must be '
+            . 'made of lower-case letters.',
+            $html
+        );
+        self::assertStringNotContainsString('<b>', $html);
+    }
+
+    /**
+     * Only a fault in a declaration is shown that way; any other failure is not hidden behind the row
+     *
+     * @return void
+     */
+    public function testDoesNotSwallowOtherFailures(): void
+    {
+        $resolver = $this->createMock(ClientAddressResolverInterface::class);
+        $resolver->method('resolve')->willThrowException(new \RuntimeException('storage down'));
+
+        $this->expectException(\RuntimeException::class);
+        self::blockOver('127.0.0.1', null, $resolver)->render(self::element());
+    }
+
+    /**
+     * The container hands the row a lazy stand-in for the resolver, which is built only when the row asks for the
+     * address, so a malformed provider declaration cannot stop the configuration section from being built
+     *
+     * @return void
+     */
+    public function testTheContainerHandsTheRowALazyResolver(): void
+    {
+        $row = Bootstrap::getObjectManager()->create(AddressCheck::class);
+        self::assertInstanceOf(AddressCheck::class, $row);
+
+        $resolver = (new \ReflectionProperty(AddressCheck::class, 'clientAddressResolver'))->getValue($row);
+
+        self::assertSame(ClientAddressResolverInterface::class . '\\Proxy', get_debug_type($resolver));
     }
 
     /**
@@ -98,14 +155,7 @@ class AddressCheckTest extends TestCase
     private static function block(string $remoteAddress, ?string $forwardedFor): AddressCheck
     {
         $objectManager = Bootstrap::getObjectManager();
-        $request = $objectManager->create(Request::class);
-        self::assertInstanceOf(Request::class, $request);
-        $server = ['REMOTE_ADDR' => $remoteAddress];
-        if ($forwardedFor !== null) {
-            $server['HTTP_X_FORWARDED_FOR'] = $forwardedFor;
-        }
-        $request->setServer(new Parameters($server));
-
+        $request = self::request($remoteAddress, $forwardedFor);
         $registry = $objectManager->create(CrawlerRegistry::class, [
             'crawlers' => [],
             'rangeLists' => [],
@@ -118,14 +168,56 @@ class AddressCheckTest extends TestCase
             'request' => $request,
             'chainResolver' => $chainResolver,
         ]);
-
-        $context = $objectManager->create(Context::class, ['request' => $request]);
-        self::assertInstanceOf(Context::class, $context);
         self::assertInstanceOf(ProxyChainClientAddressResolver::class, $resolver);
+
+        return self::blockOver($remoteAddress, $forwardedFor, $resolver, $request);
+    }
+
+    /**
+     * The row over a fresh request carrying the given values and the given resolver, built over the container's
+     * context and escaper
+     *
+     * @param string $remoteAddress Connecting address
+     * @param string|null $forwardedFor X-Forwarded-For header; null when the request carries none
+     * @param ClientAddressResolverInterface $resolver Resolver the row asks for the visitor address
+     * @param Request|null $request The request the row shows; a fresh one with the given values when null
+     * @return AddressCheck
+     */
+    private static function blockOver(
+        string $remoteAddress,
+        ?string $forwardedFor,
+        ClientAddressResolverInterface $resolver,
+        ?Request $request = null
+    ): AddressCheck {
+        $objectManager = Bootstrap::getObjectManager();
+        $context = $objectManager->create(Context::class, [
+            'request' => $request ?? self::request($remoteAddress, $forwardedFor),
+        ]);
+        self::assertInstanceOf(Context::class, $context);
         $escaper = $objectManager->get(Escaper::class);
         self::assertInstanceOf(Escaper::class, $escaper);
 
         return new AddressCheck($context, $resolver, $escaper);
+    }
+
+    /**
+     * A fresh request carrying the given server values
+     *
+     * @param string $remoteAddress Connecting address
+     * @param string|null $forwardedFor X-Forwarded-For header; null when the request carries none
+     * @return Request
+     */
+    private static function request(string $remoteAddress, ?string $forwardedFor): Request
+    {
+        $request = Bootstrap::getObjectManager()->create(Request::class);
+        self::assertInstanceOf(Request::class, $request);
+        $server = ['REMOTE_ADDR' => $remoteAddress];
+        if ($forwardedFor !== null) {
+            $server['HTTP_X_FORWARDED_FOR'] = $forwardedFor;
+        }
+        $request->setServer(new Parameters($server));
+
+        return $request;
     }
 
     /**

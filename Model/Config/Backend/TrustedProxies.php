@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Hryvinskyi\BotVerification\Model\Config\Backend;
 
+use Hryvinskyi\BotVerification\Api\LineListReaderInterface;
 use Hryvinskyi\BotVerification\Api\RangeSnapshotBuilderInterface;
 use Hryvinskyi\BotVerification\Exception\RangeListRejectedException;
 use Magento\Framework\App\Cache\TypeListInterface;
@@ -41,6 +42,7 @@ class TrustedProxies extends Value
      * @param ScopeConfigInterface $config Configuration the stored value is compared with
      * @param TypeListInterface $cacheTypeList Cache types a changed value invalidates
      * @param RangeSnapshotBuilderInterface $builder Reads each line as the request path will
+     * @param LineListReaderInterface $lineListReader Splits the value into lines the way the settings read it back
      * @param AbstractResource|null $resource Resource model
      * @param AbstractDb|null $resourceCollection Resource collection
      * @param array<string, mixed> $data Model data
@@ -51,6 +53,7 @@ class TrustedProxies extends Value
         ScopeConfigInterface $config,
         TypeListInterface $cacheTypeList,
         private readonly RangeSnapshotBuilderInterface $builder,
+        private readonly LineListReaderInterface $lineListReader,
         ?AbstractResource $resource = null,
         ?AbstractDb $resourceCollection = null,
         array $data = []
@@ -66,11 +69,7 @@ class TrustedProxies extends Value
      */
     public function beforeSave()
     {
-        $lines = preg_split('/\R/', (string) $this->getValue());
-        $ranges = array_values(array_filter(
-            array_map('trim', $lines === false ? [] : $lines),
-            static fn (string $line): bool => $line !== ''
-        ));
+        $ranges = $this->lineListReader->read((string) $this->getValue());
         foreach ($ranges as $range) {
             try {
                 $this->builder->build([$range], self::CHECKED_AT);

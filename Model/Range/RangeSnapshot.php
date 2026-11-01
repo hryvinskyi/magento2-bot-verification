@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Hryvinskyi\BotVerification\Model\Range;
 
+use Hryvinskyi\BotVerification\Api\Data\AddressFamily;
 use Hryvinskyi\BotVerification\Api\Data\RangeSnapshotInterface;
 
 /**
@@ -126,6 +127,36 @@ class RangeSnapshot implements RangeSnapshotInterface
     public function getIpv6Ranges(): string
     {
         return $this->ipv6Ranges;
+    }
+
+    /**
+     * @inheritDoc
+     *
+     * A span is the difference of two big-endian numbers, so it is accumulated byte by byte from the most significant
+     * end as the sum of the bytes' differences, each step multiplying by 256. Every partial value is the difference of
+     * two prefixes of the same width, never negative because the last address is not below the first, and never larger
+     * than the final span: nothing cancels, and a span below 2^53 is exact.
+     */
+    public function coveredAddresses(AddressFamily $family): float
+    {
+        $ranges = match ($family) {
+            AddressFamily::Ipv4 => $this->ipv4Ranges,
+            AddressFamily::Ipv6 => $this->ipv6Ranges,
+        };
+        $width = intdiv($family->bits(), 8);
+        $length = strlen($ranges);
+
+        $covered = 0.0;
+        for ($start = 0; $start < $length; $start += 2 * $width) {
+            $end = $start + $width;
+            $span = 0.0;
+            for ($byte = 0; $byte < $width; $byte++) {
+                $span = $span * 256 + (ord($ranges[$end + $byte]) - ord($ranges[$start + $byte]));
+            }
+            $covered += $span + 1;
+        }
+
+        return $covered;
     }
 
     /**

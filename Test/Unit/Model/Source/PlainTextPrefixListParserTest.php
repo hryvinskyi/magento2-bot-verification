@@ -11,6 +11,7 @@ namespace Hryvinskyi\BotVerification\Test\Unit\Model\Source;
 
 use Hryvinskyi\BotVerification\Exception\RangeListRejectedException;
 use Hryvinskyi\BotVerification\Model\Source\PlainTextPrefixListParser;
+use Hryvinskyi\BotVerification\Model\Text\LineListReader;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -28,7 +29,7 @@ class PlainTextPrefixListParserTest extends TestCase
      */
     public function testReadsOnePrefixPerLine(string $body, array $expected): void
     {
-        self::assertSame($expected, (new PlainTextPrefixListParser())->parse($body));
+        self::assertSame($expected, (new PlainTextPrefixListParser(new LineListReader()))->parse($body));
     }
 
     /**
@@ -44,6 +45,7 @@ class PlainTextPrefixListParserTest extends TestCase
                 "192.0.2.0/24\r\n198.51.100.0/22\r\n",
                 ['192.0.2.0/24', '198.51.100.0/22'],
             ],
+            'carriage returns alone' => ["192.0.2.0/24\r198.51.100.0/22\r", ['192.0.2.0/24', '198.51.100.0/22']],
             'no line feed after the last line' => [
                 "192.0.2.0/24\n198.51.100.0/22",
                 ['192.0.2.0/24', '198.51.100.0/22'],
@@ -72,7 +74,7 @@ class PlainTextPrefixListParserTest extends TestCase
         $this->expectException(RangeListRejectedException::class);
         $this->expectExceptionMessage('The published address list holds no prefixes.');
 
-        (new PlainTextPrefixListParser())->parse($body);
+        (new PlainTextPrefixListParser(new LineListReader()))->parse($body);
     }
 
     /**

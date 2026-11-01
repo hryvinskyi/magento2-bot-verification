@@ -41,10 +41,19 @@ requires the core, Google and Bing packages, and leaves Cloudflare out.
 4. With *Refuse impostors* on, an impostor gets a 403 and Magento never routes the request. Every other verdict passes.
 
 Missing or stale lists, an unknown visitor address, a broken provider configuration and any error let the request
-through: a fault stops the module from catching impostors rather than blocking anyone. The one setup that does refuse
-real crawlers is a proxy with a public address in front of the shop that is not in the trusted proxies, because its
-address is then taken for the visitor's; check for it before turning refusal on (see Configuration). Nothing on the
-request path waits for the network. A cron job fetches the lists every 6 hours, and the CLI fetches them on demand.
+through, so those faults stop the module from catching impostors rather than blocking anyone. A real crawler can be
+refused in two setups:
+
+- A proxy with a public address in front of the shop is not in the trusted proxies, because its address is then taken
+  for the visitor's. Check for it before turning refusal on (see Configuration).
+- A list is out of date but not yet 7 days old. A snapshot up to 7 days old still accuses, so a real crawler that comes
+  from a range its owner started using after the last stored fetch is refused. Normally that lasts until the next
+  successful refresh, which runs every 6 hours; it lasts up to 7 days while fetches fail or the shrink guard holds a
+  list back.
+
+The age that counts is the time the shop fetched the list, not the date its publisher gives it: Bing's list is dated
+2024-01-03 by Bing and is fresh whenever the shop has fetched it within 7 days. Nothing on the request path waits for
+the network. A cron job fetches the lists every 6 hours, and the CLI fetches them on demand.
 
 ## Installation
 
@@ -86,14 +95,19 @@ The screenshot comes from a local Docker setup whose only hops are private, so n
 and nothing would be refused. The row describes the admin page's own path: when the admin host bypasses the CDN or
 proxies the storefront uses, check the storefront path with `bot-verification:check --forwarded-for` (below).
 
-*Refuse impostors* (store view) is off by default. Change it in the admin: on hosts that serve configuration from
-opcache, a change made from the command line may not reach PHP-FPM until it is reloaded.
+*Refuse impostors* (store view) is off by default. It is read before the request is routed, for the store the request
+has been resolved to by then: a storefront request gets the store its host, store code or store cookie resolves to; a
+REST or GraphQL request gets the store its host resolves to, not the one named in the URL path or the `Store` header;
+the admin reads the default store view. Change it in the admin: on hosts that serve configuration from opcache, a
+change made from the command line may not reach PHP-FPM until it is reloaded.
 
 ## Command line
 
 `bot-verification:refresh [--force] [<list code>...]` fetches the lists now, all of them when no code is given. A list
-that cannot be fetched, is not in its format, holds a malformed prefix or shrank to under half of its stored ranges
-keeps its previous copy and is reported, and the command exits non-zero. `--force` accepts a shrink.
+that cannot be fetched, is not in its format, holds a malformed prefix or shrank keeps its previous copy and is
+reported, and the command exits non-zero. A list has shrunk when, in an address family (IPv4 or IPv6) its stored copy
+covers, the new list covers fewer than half of the stored copy's addresses; a family that vanishes counts as none.
+Exactly half passes, and a first fetch or a growing list is never held back. `--force` accepts a shrink.
 
 ```
 bing: 27 ranges
@@ -251,10 +265,13 @@ A malformed declaration fails loudly in the refresh, the CLI and tests, and fail
   edge server, and the address it writes into `X-Forwarded-For` is read as the visitor's. That lets an impostor through
   and never refuses a real crawler. Requiring the CDN's client certificate at the origin (Cloudflare's Authenticated
   Origin Pulls) closes it.
+- A list is trusted for up to 7 days after its last stored fetch. A real crawler that comes from a range its owner
+  started using after that fetch is refused until the next successful refresh (every 6 hours), and for up to 7 days
+  while fetches fail or the shrink guard holds a list back.
 - An edge range a CDN adds between two refreshes resolves to the edge server itself until the next refresh, so a real
   crawler arriving through it could be refused in that window.
-- The switch is read before routing, so a REST or GraphQL request that names another store reads the switch of the
-  store its host resolves to.
+- The switch is read before routing, so a REST or GraphQL request that names another store in its URL path or `Store`
+  header reads the switch of the store its host resolves to, and the admin reads the default store view.
 
 ## Requirements
 

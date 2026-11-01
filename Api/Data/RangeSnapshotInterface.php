@@ -83,6 +83,22 @@ interface RangeSnapshotInterface
     public function getIpv6Ranges(): string;
 
     /**
+     * How many addresses of one family the ranges cover
+     *
+     * The records are merged, so this is the size of the address space the list vouches for in that family - what
+     * changes when a publisher widens, narrows or drops prefixes, however the prefixes merge into blocks.
+     *
+     * Precision: each record's span (last address - first address + 1) is computed without loss and summed as a
+     * float. IPv4 is exact, since no IPv4 sum exceeds 2^32. An IPv6 sum carries a float's rounding: for a list of n
+     * records its relative error is below (n + 16) x 2^-53 - enough to compare two lists' coverage, not to name an
+     * exact number of addresses. The whole IPv6 space is 2^128.
+     *
+     * @param AddressFamily $family Family to measure
+     * @return float Number of addresses covered; 0.0 when the list holds no range of the family
+     */
+    public function coveredAddresses(AddressFamily $family): float;
+
+    /**
      * Number of merged ranges in both families together
      *
      * @return int

@@ -9,7 +9,9 @@ declare(strict_types=1);
 
 namespace Hryvinskyi\BotVerification\Test\Unit\Model;
 
+use Hryvinskyi\BotVerification\Api\LineListReaderInterface;
 use Hryvinskyi\BotVerification\Model\Config;
+use Hryvinskyi\BotVerification\Model\Text\LineListReader;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Store\Model\ScopeInterface;
 use PHPUnit\Framework\TestCase;
@@ -70,7 +72,37 @@ class ConfigTest extends TestCase
             )
             ->willReturn('10.0.0.0/8');
 
-        self::assertSame(['10.0.0.0/8'], (new Config($scopeConfig))->getTrustedProxies());
+        self::assertSame(['10.0.0.0/8'], (new Config($scopeConfig, new LineListReader()))->getTrustedProxies());
+    }
+
+    /**
+     * The stored text is split by the one reader of multi-line values, and what it returns is what the settings give
+     *
+     * @return void
+     */
+    public function testSplitsTheValueWithTheLineListReader(): void
+    {
+        $scopeConfig = $this->createMock(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturn("a\nb");
+        $reader = $this->createMock(LineListReaderInterface::class);
+        $reader->expects(self::once())->method('read')->with("a\nb")->willReturn(['read by the reader']);
+
+        self::assertSame(['read by the reader'], (new Config($scopeConfig, $reader))->getTrustedProxies());
+    }
+
+    /**
+     * Nothing is stored as text, so there is nothing to split
+     *
+     * @return void
+     */
+    public function testNeverAsksTheReaderAboutAValueThatIsNotText(): void
+    {
+        $scopeConfig = $this->createMock(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturn(null);
+        $reader = $this->createMock(LineListReaderInterface::class);
+        $reader->expects(self::never())->method('read');
+
+        self::assertSame([], (new Config($scopeConfig, $reader))->getTrustedProxies());
     }
 
     /**
@@ -88,7 +120,7 @@ class ConfigTest extends TestCase
             ->with('hryvinskyi_bot_verification/impostor/refuse', ScopeInterface::SCOPE_STORE)
             ->willReturn($isSet);
 
-        self::assertSame($isSet, (new Config($scopeConfig))->isImpostorRefusalEnabled());
+        self::assertSame($isSet, (new Config($scopeConfig, new LineListReader()))->isImpostorRefusalEnabled());
     }
 
     /**
@@ -115,6 +147,6 @@ class ConfigTest extends TestCase
         $scopeConfig = $this->createMock(ScopeConfigInterface::class);
         $scopeConfig->method('getValue')->willReturn($stored);
 
-        return new Config($scopeConfig);
+        return new Config($scopeConfig, new LineListReader());
     }
 }

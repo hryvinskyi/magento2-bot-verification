@@ -10,14 +10,16 @@ declare(strict_types=1);
 namespace Hryvinskyi\BotVerification\Test\Unit\Cron;
 
 use Hryvinskyi\BotVerification\Cron\RefreshRangeLists;
+use Hryvinskyi\BotVerification\Exception\RangeListStorageException;
 use Hryvinskyi\BotVerification\Model\RefreshResult;
+use Hryvinskyi\BotVerification\Test\Double\RecordingLogger;
 use Hryvinskyi\BotVerification\Test\Double\ScriptedRangeListRefresher;
-use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
-use Psr\Log\LoggerInterface;
+use Psr\Log\LogLevel;
 
 /**
- * The scheduled refresh refreshes every declared list and warns once per list that keeps its previous snapshot
+ * The scheduled refresh refreshes every declared list and warns once per list that keeps its previous snapshot,
+ * also when a later list could not be stored
  */
 class RefreshRangeListsTest extends TestCase
 {
@@ -32,17 +34,20 @@ class RefreshRangeListsTest extends TestCase
             ['example_main' => 12],
             ['example_extra' => 'The list could not be fetched.']
         ));
-        $logger = $this->logger();
-        $logger->expects(self::once())
-            ->method('warning')
-            ->with(
-                'Bot verification: range list "example_extra" was not refreshed and keeps its previous snapshot: '
-                . 'The list could not be fetched.'
-            );
-        $logger->expects(self::never())->method(self::logicalNot(self::equalTo('warning')));
+        $logger = new RecordingLogger();
 
         (new RefreshRangeLists($refresher, $logger))->execute();
 
+        self::assertSame(
+            [
+                [
+                    'level' => LogLevel::WARNING,
+                    'message' => 'Bot verification: range list "example_extra" was not refreshed and keeps its '
+                        . 'previous snapshot: The list could not be fetched.',
+                ],
+            ],
+            $logger->records
+        );
         self::assertSame([['listCodes' => [], 'acceptShrink' => false]], $refresher->calls);
     }
 
@@ -54,21 +59,47 @@ class RefreshRangeListsTest extends TestCase
     public function testLogsNothingWhenNoListIsRejected(): void
     {
         $refresher = new ScriptedRangeListRefresher(new RefreshResult(['example_main' => 12, 'example_extra' => 3]));
-        $logger = $this->logger();
-        $logger->expects(self::never())->method(self::anything());
+        $logger = new RecordingLogger();
 
         (new RefreshRangeLists($refresher, $logger))->execute();
 
+        self::assertSame([], $logger->records);
         self::assertCount(1, $refresher->calls);
     }
 
     /**
-     * A logger that records how it is called
+     * A list rejected before a later list could not be stored is still logged, and the storage failure still
+     * reaches the cron runner
      *
-     * @return LoggerInterface&MockObject
+     * @return void
      */
-    private function logger(): LoggerInterface
+    public function testWarnsAboutListsRejectedBeforeAStorageFailureAndRethrowsIt(): void
     {
-        return $this->createMock(LoggerInterface::class);
+        $failure = new RangeListStorageException(
+            __('The address list %1 could not be stored and the refresh stopped: %2', 'example_edge', 'Unavailable.'),
+            'example_edge',
+            new RefreshResult(['example_extra' => 3], ['example_main' => 'The list could not be fetched.']),
+            new \RuntimeException('Unavailable.')
+        );
+        $logger = new RecordingLogger();
+
+        $caught = null;
+        try {
+            (new RefreshRangeLists(new ScriptedRangeListRefresher($failure), $logger))->execute();
+        } catch (RangeListStorageException $exception) {
+            $caught = $exception;
+        }
+
+        self::assertSame($failure, $caught, 'The storage failure did not reach the cron runner.');
+        self::assertSame(
+            [
+                [
+                    'level' => LogLevel::WARNING,
+                    'message' => 'Bot verification: range list "example_main" was not refreshed and keeps its '
+                        . 'previous snapshot: The list could not be fetched.',
+                ],
+            ],
+            $logger->records
+        );
     }
 }

@@ -35,15 +35,19 @@ use Magento\Framework\Controller\ResultInterface;
  * declares a negative order, so it runs before the built-in page cache, the form-key plugin, the no-store plugin of
  * the REST and SOAP areas and every other front-controller plugin. With refusal on, an impostor is refused even for a
  * page the built-in cache holds, and every request that reaches PHP pays for the claim check; a request an HTTP cache
- * in front of the shop answers never reaches PHP. On a refusal the plugins inside it do not run - the no-store
- * plugin among them - so the refusal sets its own cache headers.
+ * in front of the shop answers never reaches PHP. On a refusal the other front-controller plugins and the routing
+ * do not run - the no-store plugin among them - so the refusal sets its own cache headers. The application still
+ * dispatches its response-sending events and runs the plugins on sending the response, as it does for any response
+ * returned from dispatch.
  *
- * Verification fails open: any error while judging the request - a malformed crawler declaration, an unreadable
- * stored list, a bug - lets the request through instead of answering it with an error. The judgement is built on
- * every request while refusal is on, so failing loudly here would turn one bad declaration into an error on every
- * page. Nothing is logged, which would be one line per request: the refresh job and the command-line tools build the
- * same objects and fail loudly there. A refusal is not logged either; the web server's access log shows each 403
- * with its User-Agent.
+ * Verification fails open: any error while reading the switch or judging the request - a store that cannot be
+ * resolved this early, a malformed crawler declaration, an unreadable stored list, a bug - lets the request through
+ * instead of answering it with an error. The switch is store-scoped and read before any other plugin has chosen the
+ * store, and the judgement is built on every request while refusal is on, so failing loudly here would turn one bad
+ * declaration into an error on every page. An error from the rest of the chain is not part of that decision and
+ * propagates unchanged. Nothing is logged, which would be one line per request: the refresh job and the
+ * command-line tools build the same objects and fail loudly there. A refusal is not logged either; the web server's
+ * access log shows each 403 with its User-Agent.
  *
  * With refusal off nothing behind the verifier is built. With it on, a request that claims no crawler pays for
  * building the verifier's small object graph and one regular-expression scan of its User-Agent; it reads no stored
@@ -83,10 +87,7 @@ class RefuseImpostorPlugin
         RequestInterface $request
     ): ResponseInterface|ResultInterface {
         $response = $this->response;
-        if (!$this->config->isImpostorRefusalEnabled()
-            || !$response instanceof HttpInterface
-            || !$this->isImpostor()
-        ) {
+        if (!$response instanceof HttpInterface || !$this->isRefused()) {
             return $this->proceed($proceed, $request);
         }
 
@@ -99,14 +100,14 @@ class RefuseImpostorPlugin
     }
 
     /**
-     * Whether the current request is a crawler impostor; false when it cannot be judged
+     * Whether refusal is on and the current request is a crawler impostor; false when that cannot be decided
      *
      * @return bool
      */
-    private function isImpostor(): bool
+    private function isRefused(): bool
     {
         try {
-            return $this->requestVerifier->verify()->isImpostor();
+            return $this->config->isImpostorRefusalEnabled() && $this->requestVerifier->verify()->isImpostor();
         } catch (\Throwable) {
             return false;
         }

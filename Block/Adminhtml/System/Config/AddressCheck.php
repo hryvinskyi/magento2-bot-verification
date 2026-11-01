@@ -58,17 +58,34 @@ class AddressCheck extends Field
      */
     protected function _getElementHtml(AbstractElement $element): string
     {
-        $visitorAddress = $this->clientAddressResolver->resolve();
         $lines = [
             __('Connection from: %1', $this->serverValue('REMOTE_ADDR') ?? self::ABSENT),
             __('X-Forwarded-For: %1', $this->serverValue('HTTP_X_FORWARDED_FOR') ?? self::ABSENT),
-            __('Visitor address: %1', $visitorAddress ?? __(
-                'cannot be determined — the request reached the shop only through trusted proxies, or a proxy list '
-                . 'has not been fetched yet'
-            )),
+            __('Visitor address: %1', $this->visitorAddress()),
         ];
 
         return implode('<br/>', array_map(fn (Phrase $line): string => $this->escape($line->render()), $lines));
+    }
+
+    /**
+     * The visitor address of the request, or the sentence that says it is not known
+     *
+     * The resolver is built when it is first asked, and a crawler or list declaration that a provider module got
+     * wrong stops it from being built: that fault is shown in the row instead of keeping the configuration section
+     * from opening.
+     *
+     * @return string|Phrase The address; the sentence stating that it cannot be determined otherwise
+     */
+    private function visitorAddress(): string|Phrase
+    {
+        try {
+            return $this->clientAddressResolver->resolve() ?? __(
+                'cannot be determined from this request\'s forwarding chain — run bin/magento '
+                . 'bot-verification:check with the same addresses to reproduce it'
+            );
+        } catch (\InvalidArgumentException $exception) {
+            return __('cannot be determined: %1', $exception->getMessage());
+        }
     }
 
     /**

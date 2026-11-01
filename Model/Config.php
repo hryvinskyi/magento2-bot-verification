@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Hryvinskyi\BotVerification\Model;
 
 use Hryvinskyi\BotVerification\Api\ConfigInterface;
+use Hryvinskyi\BotVerification\Api\LineListReaderInterface;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Store\Model\ScopeInterface;
 
@@ -17,8 +18,9 @@ use Magento\Store\Model\ScopeInterface;
  * The module's settings, read from the stored system configuration
  *
  * The trusted proxies describe the infrastructure in front of the whole installation, not a store, so they are read
- * at the default scope only. The refusal switch is read for the current store, so a shop can turn it on for some
- * stores first.
+ * at the default scope only. The refusal switch is read for the store the request has been resolved to when the
+ * switch is read, which is before routing, so a shop can turn it on for some stores first; which store that is for
+ * each kind of request is stated on the interface.
  */
 class Config implements ConfigInterface
 {
@@ -27,9 +29,11 @@ class Config implements ConfigInterface
 
     /**
      * @param ScopeConfigInterface $scopeConfig Stored system configuration
+     * @param LineListReaderInterface $lineListReader Reads the multi-line trusted-proxies value the way it is stored
      */
     public function __construct(
-        private readonly ScopeConfigInterface $scopeConfig
+        private readonly ScopeConfigInterface $scopeConfig,
+        private readonly LineListReaderInterface $lineListReader
     ) {
     }
 
@@ -46,12 +50,7 @@ class Config implements ConfigInterface
             return [];
         }
 
-        $lines = preg_split('/\R/', $value);
-
-        return array_values(array_filter(
-            array_map('trim', $lines === false ? [] : $lines),
-            static fn (string $line): bool => $line !== ''
-        ));
+        return $this->lineListReader->read($value);
     }
 
     /**

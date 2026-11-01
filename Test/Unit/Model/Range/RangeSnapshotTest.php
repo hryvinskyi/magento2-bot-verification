@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Hryvinskyi\BotVerification\Test\Unit\Model\Range;
 
+use Hryvinskyi\BotVerification\Api\Data\AddressFamily;
 use Hryvinskyi\BotVerification\Model\Range\RangeSnapshot;
 use PHPUnit\Framework\TestCase;
 
@@ -369,6 +370,129 @@ class RangeSnapshotTest extends TestCase
             'fetched at zero' => ['', '', 0],
             'fetched before the epoch' => ['', '', -1],
         ];
+    }
+
+    /**
+     * IPv4 coverage is the exact number of addresses the records span, summed over the records; the IPv6 family of the
+     * same snapshot covers nothing
+     *
+     * @return void
+     */
+    public function testCountsTheIpv4AddressesCovered(): void
+    {
+        $snapshot = new RangeSnapshot(
+            self::record('192.0.2.7', '192.0.2.7')
+                . self::record('198.51.100.0', '198.51.100.255')
+                . self::record('203.0.113.0', '203.0.113.31'),
+            '',
+            self::FETCHED_AT
+        );
+
+        self::assertSame(289.0, $snapshot->coveredAddresses(AddressFamily::Ipv4));
+        self::assertSame(0.0, $snapshot->coveredAddresses(AddressFamily::Ipv6));
+    }
+
+    /**
+     * A range whose last address carries into the next byte spans its true width: the difference borrows across the
+     * byte boundary
+     *
+     * @return void
+     */
+    public function testARangeAcrossAByteBoundarySpansItsTrueWidth(): void
+    {
+        $snapshot = new RangeSnapshot(self::record('198.51.100.255', '198.51.101.0'), '', self::FETCHED_AT);
+
+        self::assertSame(2.0, $snapshot->coveredAddresses(AddressFamily::Ipv4));
+    }
+
+    /**
+     * Touching records cover what the one record they merge into covers
+     *
+     * @return void
+     */
+    public function testTouchingRecordsCoverWhatTheirMergedRecordCovers(): void
+    {
+        $touching = new RangeSnapshot(
+            self::record('192.0.2.0', '192.0.2.127') . self::record('192.0.2.128', '192.0.2.255'),
+            self::record('2001:db8::', '2001:db8::ff') . self::record('2001:db8::100', '2001:db8::1ff'),
+            self::FETCHED_AT
+        );
+        $merged = new RangeSnapshot(
+            self::record('192.0.2.0', '192.0.2.255'),
+            self::record('2001:db8::', '2001:db8::1ff'),
+            self::FETCHED_AT
+        );
+
+        self::assertSame(256.0, $touching->coveredAddresses(AddressFamily::Ipv4));
+        self::assertSame(512.0, $touching->coveredAddresses(AddressFamily::Ipv6));
+        foreach (AddressFamily::cases() as $family) {
+            self::assertSame($merged->coveredAddresses($family), $touching->coveredAddresses($family));
+        }
+    }
+
+    /**
+     * IPv6 coverage of prefixes is the power of two they are worth, and a small range high in the space keeps its
+     * exact width: the span is not the difference of two rounded addresses
+     *
+     * @dataProvider ipv6Coverage
+     * @param string $ipv6Ranges Packed IPv6 records
+     * @param float $expected Addresses covered
+     * @return void
+     */
+    public function testMeasuresTheIpv6AddressesCovered(string $ipv6Ranges, float $expected): void
+    {
+        $snapshot = new RangeSnapshot('', $ipv6Ranges, self::FETCHED_AT);
+
+        self::assertSame($expected, $snapshot->coveredAddresses(AddressFamily::Ipv6));
+        self::assertSame(0.0, $snapshot->coveredAddresses(AddressFamily::Ipv4));
+    }
+
+    /**
+     * IPv6 records and the number of addresses they cover
+     *
+     * @return array<string, array{string, float}>
+     */
+    public static function ipv6Coverage(): array
+    {
+        return [
+            'a single address' => [self::record('2001:db8::7', '2001:db8::7'), 1.0],
+            'a /32' => [self::record('2001:db8::', '2001:db8:ffff:ffff:ffff:ffff:ffff:ffff'), 2.0 ** 96],
+            'a /32 and a /48' => [
+                self::record('2001:db8::', '2001:db8:ffff:ffff:ffff:ffff:ffff:ffff')
+                    . self::record('2001:db9::', '2001:db9:0:ffff:ffff:ffff:ffff:ffff'),
+                2.0 ** 96 + 2.0 ** 80,
+            ],
+            '256 addresses at the top of the space' => [
+                self::record('ffff:ffff:ffff:ffff:ffff:ffff:ffff:ff00', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'),
+                256.0,
+            ],
+            'the whole space' => [self::record('::', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'), 2.0 ** 128],
+        ];
+    }
+
+    /**
+     * The whole IPv4 space covers 2^32 addresses, exactly
+     *
+     * @return void
+     */
+    public function testTheWholeIpv4SpaceCoversEveryAddress(): void
+    {
+        $snapshot = new RangeSnapshot(self::record('0.0.0.0', '255.255.255.255'), '', self::FETCHED_AT);
+
+        self::assertSame(4294967296.0, $snapshot->coveredAddresses(AddressFamily::Ipv4));
+    }
+
+    /**
+     * An empty snapshot covers nothing in either family
+     *
+     * @return void
+     */
+    public function testAnEmptySnapshotCoversNothing(): void
+    {
+        $snapshot = new RangeSnapshot('', '', self::FETCHED_AT);
+
+        self::assertSame(0.0, $snapshot->coveredAddresses(AddressFamily::Ipv4));
+        self::assertSame(0.0, $snapshot->coveredAddresses(AddressFamily::Ipv6));
     }
 
     /**

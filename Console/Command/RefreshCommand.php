@@ -11,6 +11,7 @@ namespace Hryvinskyi\BotVerification\Console\Command;
 
 use Hryvinskyi\BotVerification\Api\Data\RefreshResultInterface;
 use Hryvinskyi\BotVerification\Api\RangeListRefresherInterface;
+use Hryvinskyi\BotVerification\Exception\RangeListStorageException;
 use Magento\Framework\Exception\LocalizedException;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Formatter\OutputFormatter;
@@ -23,7 +24,9 @@ use Symfony\Component\Console\Output\OutputInterface;
  * `bot-verification:refresh` - fetch the published address lists now, all of them or the ones named
  *
  * Prints the ranges stored per refreshed list and the reason per rejected list. Exits non-zero when any list was
- * rejected or a named list is not declared, so a script running it notices a list that keeps its previous snapshot.
+ * rejected, a named list is not declared or a list could not be stored, so a script running it notices a list that
+ * keeps its previous snapshot. When a list cannot be stored, the lists the refresh dealt with before it are printed
+ * first, then the storage failure.
  */
 class RefreshCommand extends Command
 {
@@ -35,7 +38,7 @@ class RefreshCommand extends Command
     public const ARGUMENT_LISTS = 'lists';
 
     /**
-     * Store a list even when it lost more than half of its ranges
+     * Store a list even when it lost more than half of its address space in a family
      */
     public const OPTION_FORCE = 'force';
 
@@ -64,7 +67,8 @@ class RefreshCommand extends Command
                 self::OPTION_FORCE,
                 null,
                 InputOption::VALUE_NONE,
-                'Store a list even when it lost more than half of its ranges since the last refresh'
+                'Store a list even when it covers less than half of the addresses it covered in an address family '
+                . 'at the last refresh'
             );
 
         parent::configure();
@@ -80,8 +84,13 @@ class RefreshCommand extends Command
                 $this->requestedLists($input),
                 $input->getOption(self::OPTION_FORCE) === true
             );
+        } catch (RangeListStorageException $exception) {
+            $this->render($output, $exception->getResult());
+            $this->renderError($output, $exception);
+
+            return Command::FAILURE;
         } catch (LocalizedException $exception) {
-            $output->writeln(sprintf('<error>%s</error>', OutputFormatter::escape($exception->getMessage())));
+            $this->renderError($output, $exception);
 
             return Command::FAILURE;
         }
@@ -112,6 +121,18 @@ class RefreshCommand extends Command
         }
 
         return $codes;
+    }
+
+    /**
+     * Print the message of the exception that ended the refresh, as an error
+     *
+     * @param OutputInterface $output Console output
+     * @param LocalizedException $exception What ended the refresh
+     * @return void
+     */
+    private function renderError(OutputInterface $output, LocalizedException $exception): void
+    {
+        $output->writeln(sprintf('<error>%s</error>', OutputFormatter::escape($exception->getMessage())));
     }
 
     /**

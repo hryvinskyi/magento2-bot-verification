@@ -14,7 +14,7 @@ use Magento\TestFramework\Helper\Bootstrap;
 use PHPUnit\Framework\TestCase;
 
 /**
- * The refusal switch as the container's settings read it from the merged configuration
+ * The settings as the container builds them and reads them from the merged configuration
  */
 class ConfigTest extends TestCase
 {
@@ -37,6 +37,28 @@ class ConfigTest extends TestCase
     public function testTheSwitchIsReadForTheCurrentStore(): void
     {
         self::assertTrue(self::config()->isImpostorRefusalEnabled());
+    }
+
+    /**
+     * The multi-line trusted proxies the module ships are read as one range per line through the container's
+     * line reader
+     *
+     * @return void
+     */
+    public function testTheShippedTrustedProxiesAreReadOnePerLine(): void
+    {
+        self::assertSame(
+            [
+                '127.0.0.0/8',
+                '::1/128',
+                '10.0.0.0/8',
+                '172.16.0.0/12',
+                '192.168.0.0/16',
+                '100.64.0.0/10',
+                'fc00::/7',
+            ],
+            self::config()->getTrustedProxies()
+        );
     }
 
     /**

@@ -15,6 +15,8 @@ use Magento\Framework\Cache\FrontendInterface;
  * A cache that keeps its entries in memory, never expires them, and records which identifiers were loaded, saved and
  * removed
  *
+ * A test can make it behave like an unreachable backend: while a fault is set, every load, save or removal records
+ * the call and then throws it; while saves are rejected, a save records the call, stores nothing and returns false.
  * It has no storage backend: asking for one is a mistake in the test.
  */
 class InMemoryCacheFrontend implements FrontendInterface
@@ -38,6 +40,26 @@ class InMemoryCacheFrontend implements FrontendInterface
      * @var list<string> Identifiers removed, in order, once per removal
      */
     public array $removed = [];
+
+    /**
+     * @var \Throwable|null Thrown by every load while set
+     */
+    public ?\Throwable $loadFault = null;
+
+    /**
+     * @var \Throwable|null Thrown by every save while set
+     */
+    public ?\Throwable $saveFault = null;
+
+    /**
+     * @var \Throwable|null Thrown by every removal while set
+     */
+    public ?\Throwable $removeFault = null;
+
+    /**
+     * @var bool Whether a save stores nothing and reports failure by returning false
+     */
+    public bool $rejectSaves = false;
 
     /**
      * Replace the data of every entry, keeping its tags and lifetime
@@ -66,6 +88,9 @@ class InMemoryCacheFrontend implements FrontendInterface
     public function load($identifier)
     {
         $this->loaded[] = $identifier;
+        if ($this->loadFault !== null) {
+            throw $this->loadFault;
+        }
 
         return isset($this->entries[$identifier]) ? $this->entries[$identifier]['data'] : false;
     }
@@ -77,6 +102,12 @@ class InMemoryCacheFrontend implements FrontendInterface
     public function save($data, $identifier, array $tags = [], $lifeTime = null)
     {
         $this->saved[] = $identifier;
+        if ($this->saveFault !== null) {
+            throw $this->saveFault;
+        }
+        if ($this->rejectSaves) {
+            return false;
+        }
         $this->entries[$identifier] = ['data' => $data, 'tags' => $tags, 'lifetime' => $lifeTime];
 
         return true;
@@ -88,6 +119,9 @@ class InMemoryCacheFrontend implements FrontendInterface
     public function remove($identifier)
     {
         $this->removed[] = $identifier;
+        if ($this->removeFault !== null) {
+            throw $this->removeFault;
+        }
         unset($this->entries[$identifier]);
 
         return true;
