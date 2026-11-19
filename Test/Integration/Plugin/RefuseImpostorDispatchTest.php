@@ -18,7 +18,9 @@ use Hryvinskyi\BotVerification\Plugin\RefuseImpostorPlugin;
 use Laminas\Http\Header\HeaderInterface;
 use Magento\Framework\App\FrontControllerInterface;
 use Magento\Framework\App\Response\Http as HttpResponse;
+use Magento\Framework\Interception\PluginListInterface;
 use Magento\TestFramework\Helper\Bootstrap;
+use Magento\TestFramework\Interception\PluginList as TestPluginList;
 use Magento\TestFramework\ObjectManager;
 use Magento\TestFramework\TestCase\AbstractController;
 
@@ -30,9 +32,9 @@ use Magento\TestFramework\TestCase\AbstractController;
  * the case wants, an impostor's by default. The path is unique and does not exist: routed, it would be answered with a 404, so a 403 can only come
  * from the refusal.
  *
- * The container keeps the plugin it built for an earlier dispatch, and the lazy proxy of the verifier behind it, for
- * the rest of the process. Both are dropped before and after every case, so the plugin is rebuilt over the stub and
- * nothing built here outlives the case.
+ * The container and the plugin list keep the plugin built for an earlier dispatch, and the lazy proxy of the verifier
+ * behind it, for the rest of the process. Both are dropped before and after every case, so the plugin is rebuilt over
+ * the stub and nothing built here outlives the case.
  *
  * @magentoDbIsolation enabled
  * @magentoCache bot_verification enabled
@@ -143,8 +145,8 @@ class RefuseImpostorDispatchTest extends AbstractController
 
     /**
      * Drop the shared instances that remember the request verifier they were built with: the verifier itself, the
-     * lazy proxy the plugin holds, the plugin, and the front controller, whose generated interceptor keeps the plugin
-     * instances it has called; the container rebuilds all of them on their next use
+     * lazy proxy the plugin holds, the plugin, the front controller, and the plugin instances the plugin list keeps
+     * for every interceptor it serves; the container rebuilds all of them on their next use
      *
      * @param ObjectManager $objectManager The container of the test run
      * @return void
@@ -159,6 +161,9 @@ class RefuseImpostorDispatchTest extends AbstractController
             $objectManager->removeSharedInstance($type);
         }
         $objectManager->removeSharedInstance(FrontControllerInterface::class, true);
+        $pluginList = $objectManager->get(PluginListInterface::class);
+        self::assertInstanceOf(TestPluginList::class, $pluginList);
+        $pluginList->reset();
     }
 
     /**

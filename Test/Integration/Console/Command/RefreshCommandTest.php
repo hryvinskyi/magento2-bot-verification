@@ -34,7 +34,7 @@ class RefreshCommandTest extends TestCase
      */
     public function testPrintsEveryListAndFailsWhenOneIsRejected(): void
     {
-        $refresher = new ScriptedRangeListRefresher(self::result(
+        $refresher = new ScriptedRangeListRefresher(self::refreshResult(
             ['example_main' => 12],
             ['example_extra' => 'The list\'s IPv4 ranges shrank from 5 addresses to 2 addresses; the previous list '
                 . 'is kept. Refresh with --force to accept it.']
@@ -60,7 +60,7 @@ class RefreshCommandTest extends TestCase
      */
     public function testSucceedsWhenEveryListIsRefreshed(): void
     {
-        $tester = self::tester(new ScriptedRangeListRefresher(self::result(
+        $tester = self::tester(new ScriptedRangeListRefresher(self::refreshResult(
             ['example_main' => 12, 'example_extra' => 3],
             []
         )));
@@ -78,7 +78,7 @@ class RefreshCommandTest extends TestCase
      */
     public function testARejectedListIsPrintedAsAnError(): void
     {
-        $tester = self::tester(new ScriptedRangeListRefresher(self::result([], ['example_extra' => 'Unreachable.'])));
+        $tester = self::tester(new ScriptedRangeListRefresher(self::refreshResult([], ['example_extra' => 'Unreachable.'])));
 
         $tester->execute([], ['decorated' => true]);
 
@@ -95,7 +95,7 @@ class RefreshCommandTest extends TestCase
      */
     public function testAReasonIsPrintedAsWritten(): void
     {
-        $tester = self::tester(new ScriptedRangeListRefresher(self::result(
+        $tester = self::tester(new ScriptedRangeListRefresher(self::refreshResult(
             [],
             ['example_extra' => 'Unexpected <info>body</info>.']
         )));
@@ -143,7 +143,7 @@ class RefreshCommandTest extends TestCase
                 'The storage is unavailable.'
             ),
             'example_edge',
-            self::result(['example_extra' => 3], ['example_main' => 'The list could not be fetched.']),
+            self::refreshResult(['example_extra' => 3], ['example_main' => 'The list could not be fetched.']),
             new \RuntimeException('The storage is unavailable.')
         )));
 
@@ -168,7 +168,7 @@ class RefreshCommandTest extends TestCase
      */
     public function testNamedListsAndForceReachTheRefresher(): void
     {
-        $refresher = new ScriptedRangeListRefresher(self::result(['example_extra' => 3, 'example_main' => 12], []));
+        $refresher = new ScriptedRangeListRefresher(self::refreshResult(['example_extra' => 3, 'example_main' => 12], []));
 
         self::tester($refresher)->execute(['lists' => ['example_extra', 'example_main'], '--force' => true]);
         self::tester($refresher)->execute(['lists' => ['example_main']]);
@@ -203,7 +203,7 @@ class RefreshCommandTest extends TestCase
      * @param array<string, string> $rejected List code => why the list was rejected
      * @return RefreshResultInterface
      */
-    private static function result(array $refreshed, array $rejected): RefreshResultInterface
+    private static function refreshResult(array $refreshed, array $rejected): RefreshResultInterface
     {
         $factory = Bootstrap::getObjectManager()->get(RefreshResultInterfaceFactory::class);
         self::assertInstanceOf(RefreshResultInterfaceFactory::class, $factory);

@@ -167,11 +167,12 @@ class UserAgentClaimMatcherTest extends TestCase
     {
         $matcher = self::matcher();
 
-        self::assertSame(['example'], $matcher->claims('ExampleBot/2.1'));
-        self::assertSame(['example'], $matcher->claims('ExampleBot/2.1'));
-        self::assertSame(['other'], $matcher->claims('OtherBot/1.0'));
-        self::assertSame([], $matcher->claims(self::BROWSER));
-        self::assertSame(['example'], $matcher->claims('ExampleBot/2.1'));
+        $answers = [];
+        foreach (['ExampleBot/2.1', 'ExampleBot/2.1', 'OtherBot/1.0', self::BROWSER, 'ExampleBot/2.1'] as $userAgent) {
+            $answers[] = $matcher->claims($userAgent);
+        }
+
+        self::assertSame([['example'], ['example'], ['other'], [], ['example']], $answers);
     }
 
     /**

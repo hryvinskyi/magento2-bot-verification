@@ -113,10 +113,9 @@ class AddressCheck extends Field
      */
     private function escape(string $text): string
     {
-        $escaped = $this->escaper->escapeHtml($text);
-
-        // Text in gives text out; the other branch exists for arrays, which are never passed here, and printing
-        // nothing is the one reading of it that is never unsafe.
-        return is_string($escaped) ? $escaped : '';
+        // Without single-quote escaping this is the same htmlspecialchars() call escapeHtml() makes for a string, and
+        // it is declared to return a string on every framework version (escapeHtml() is declared string|array on
+        // older ones).
+        return $this->escaper->escapeHtmlAttr($text, false);
     }
 }

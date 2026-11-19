@@ -24,6 +24,14 @@ use Hryvinskyi\BotVerification\Api\AddressParserInterface;
 class AddressParser implements AddressParserInterface
 {
     /**
+     * Packed prefix of the IPv6 documentation range, 2001:db8::/32
+     *
+     * PHP's reserved-range filter refuses this range on some versions and accepts it on others, so it is refused here
+     * by prefix, the same on every PHP version.
+     */
+    private const IPV6_DOCUMENTATION_PREFIX = "\x20\x01\x0d\xb8";
+
+    /**
      * @inheritDoc
      */
     public function toBinary(string $ip): ?string
@@ -54,6 +62,7 @@ class AddressParser implements AddressParserInterface
         $text = inet_ntop($packed);
         if ($text === false
             || filter_var($text, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false
+            || (strlen($packed) === 16 && str_starts_with($packed, self::IPV6_DOCUMENTATION_PREFIX))
         ) {
             return null;
         }
