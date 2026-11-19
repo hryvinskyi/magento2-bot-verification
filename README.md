@@ -70,9 +70,11 @@ bin/magento cache:enable bot_verification
 bin/magento bot-verification:refresh
 ```
 
-The `setup:upgrade` that installs the module fetches every declared list once; a list it cannot fetch (no network on
-the build host, for one) is logged as a warning and left to the scheduled refresh, and the upgrade goes on.
-`bot-verification:refresh` fetches them by hand, which a provider module installed later needs.
+The `setup:upgrade` that brings this version to an installed module fetches every declared list once; a list it cannot
+fetch (no network on the build host, for one) is logged as a warning and left to the scheduled refresh, and the upgrade
+goes on. In the `setup:upgrade` that first enables the module Magento has not read its wiring yet, so that run logs the
+same warning and the scheduled refresh fetches the lists. `bot-verification:refresh` fetches them by hand, which a
+fresh install or a provider module installed later needs before the first scheduled refresh.
 
 Magento leaves a new cache type disabled until it is enabled by hand. Without `cache:enable bot_verification` every
 request that claims a crawler reads the lists from the database, three to four times slower (see Performance), and

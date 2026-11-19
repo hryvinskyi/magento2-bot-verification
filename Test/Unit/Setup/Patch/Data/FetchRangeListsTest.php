@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Hryvinskyi\BotVerification\Test\Unit\Setup\Patch\Data;
 
 use Hryvinskyi\BotVerification\Api\RangeListRefresherInterface;
+use Hryvinskyi\BotVerification\Api\RangeListRefresherInterfaceFactory;
 use Hryvinskyi\BotVerification\Model\RefreshResult;
 use Hryvinskyi\BotVerification\Setup\Patch\Data\FetchRangeLists;
 use Hryvinskyi\BotVerification\Test\Double\RecordingLogger;
@@ -35,7 +36,7 @@ class FetchRangeListsTest extends TestCase
         $refresher = new ScriptedRangeListRefresher(new RefreshResult(['example_main' => 12], []));
         $logger = new RecordingLogger();
 
-        (new FetchRangeLists($refresher, $logger))->apply();
+        (new FetchRangeLists($this->factoryOf($refresher), $logger))->apply();
 
         $this->assertSame([['listCodes' => [], 'acceptShrink' => false]], $refresher->calls);
         $this->assertSame([], $logger->records);
@@ -54,7 +55,7 @@ class FetchRangeListsTest extends TestCase
         ));
         $logger = new RecordingLogger();
 
-        (new FetchRangeLists($refresher, $logger))->apply();
+        (new FetchRangeLists($this->factoryOf($refresher), $logger))->apply();
 
         $this->assertCount(1, $logger->records);
         $this->assertSame(LogLevel::WARNING, $logger->records[0]['level']);
@@ -72,11 +73,32 @@ class FetchRangeListsTest extends TestCase
         $refresher = new ScriptedRangeListRefresher(new LocalizedException(new Phrase('Storage is unavailable.')));
         $logger = new RecordingLogger();
 
-        (new FetchRangeLists($refresher, $logger))->apply();
+        (new FetchRangeLists($this->factoryOf($refresher), $logger))->apply();
 
         $this->assertCount(1, $logger->records);
         $this->assertSame(LogLevel::WARNING, $logger->records[0]['level']);
         $this->assertStringContainsString('Storage is unavailable.', $logger->records[0]['message']);
+    }
+
+    /**
+     * In the upgrade that first enables the module its wiring is not read yet, so the refresher cannot be built: that is
+     * a warning, not a failed upgrade
+     *
+     * @return void
+     */
+    public function testARefresherThatCannotBeBuiltIsAWarningNotAFailedUpgrade(): void
+    {
+        $factory = $this->createMock(RangeListRefresherInterfaceFactory::class);
+        $factory->method('create')->willThrowException(new \BadMethodCallException(
+            'Cannot instantiate interface Hryvinskyi\\BotVerification\\Api\\RangeListRefresherInterface'
+        ));
+        $logger = new RecordingLogger();
+
+        (new FetchRangeLists($factory, $logger))->apply();
+
+        $this->assertCount(1, $logger->records);
+        $this->assertSame(LogLevel::WARNING, $logger->records[0]['level']);
+        $this->assertStringContainsString('Cannot instantiate interface', $logger->records[0]['message']);
     }
 
     /**
@@ -90,9 +112,23 @@ class FetchRangeListsTest extends TestCase
         $refresher->method('refresh')->willThrowException(new \Error('Cannot instantiate interface'));
         $logger = new RecordingLogger();
 
-        (new FetchRangeLists($refresher, $logger))->apply();
+        (new FetchRangeLists($this->factoryOf($refresher), $logger))->apply();
 
         $this->assertCount(1, $logger->records);
         $this->assertStringContainsString('Cannot instantiate interface', $logger->records[0]['message']);
+    }
+
+    /**
+     * A factory that builds the given refresher
+     *
+     * @param RangeListRefresherInterface $refresher The refresher the patch is to use
+     * @return RangeListRefresherInterfaceFactory
+     */
+    private function factoryOf(RangeListRefresherInterface $refresher): RangeListRefresherInterfaceFactory
+    {
+        $factory = $this->createMock(RangeListRefresherInterfaceFactory::class);
+        $factory->method('create')->willReturn($refresher);
+
+        return $factory;
     }
 }

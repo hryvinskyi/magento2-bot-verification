@@ -9,7 +9,7 @@ declare(strict_types=1);
 
 namespace Hryvinskyi\BotVerification\Setup\Patch\Data;
 
-use Hryvinskyi\BotVerification\Api\RangeListRefresherInterface;
+use Hryvinskyi\BotVerification\Api\RangeListRefresherInterfaceFactory;
 use Magento\Framework\Setup\Patch\DataPatchInterface;
 use Psr\Log\LoggerInterface;
 
@@ -21,15 +21,20 @@ use Psr\Log\LoggerInterface;
  * is rejected, or a refresh that fails outright (no network on the build host, a list that cannot be stored), is
  * logged as a warning and left to the scheduled refresh. Provider modules installed later are fetched by that refresh,
  * or by `bin/magento bot-verification:refresh`.
+ *
+ * The refresher is built when the patch applies, not when the patch is: in the setup:upgrade that first enables the
+ * module Magento has not read the module's wiring yet, so neither the refresher nor the provider lists can be built in
+ * that run. Building it inside the guarded fetch turns that into the same warning, and the scheduled refresh fetches the
+ * lists; an upgrade of an installed module fetches them at once.
  */
 class FetchRangeLists implements DataPatchInterface
 {
     /**
-     * @param RangeListRefresherInterface $refresher Fetches and stores the declared lists
+     * @param RangeListRefresherInterfaceFactory $refresherFactory Builds the refresher that fetches and stores the lists
      * @param LoggerInterface $logger Where a list that could not be fetched is reported
      */
     public function __construct(
-        private readonly RangeListRefresherInterface $refresher,
+        private readonly RangeListRefresherInterfaceFactory $refresherFactory,
         private readonly LoggerInterface $logger
     ) {
     }
@@ -42,7 +47,7 @@ class FetchRangeLists implements DataPatchInterface
     public function apply(): self
     {
         try {
-            $rejected = $this->refresher->refresh()->getRejected();
+            $rejected = $this->refresherFactory->create()->refresh()->getRejected();
         } catch (\Throwable $exception) {
             $this->logger->warning(
                 'Bot verification: the address lists could not be fetched at installation and are left to the'
